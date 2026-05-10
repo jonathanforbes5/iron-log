@@ -1,4 +1,8 @@
 export type WeightUnit = 'lbs' | 'kg';
+export type MuscleReadiness = 1 | 2 | 3 | 4 | 5; // 1=low,2=tired,3=normal,4=great,5=extra
+export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
+export type Goal = 'strength' | 'powerbuilding' | 'hypertrophy';
+export type MesocyclePhase = 'accumulation' | 'intensification' | 'peak' | 'deload';
 
 export interface Exercise {
   id: string;
@@ -8,6 +12,20 @@ export interface Exercise {
   movement: 'push' | 'pull' | 'hinge' | 'squat' | 'carry' | 'isolation';
 }
 
+export interface UserProfile {
+  name: string;
+  age: number;
+  weight: number;       // lbs
+  height: number;       // inches
+  experience: ExperienceLevel;
+  goal: Goal;
+  maxLifts: Record<string, number>; // exerciseId → 1RM in lbs
+  daysPerWeek: 3 | 4;
+  onboardingComplete: boolean;
+  claudeApiKey?: string;
+  createdAt: string;
+}
+
 export interface ProgramExercise {
   exerciseId: string;
   sets: number;
@@ -15,12 +33,14 @@ export interface ProgramExercise {
   repsMax: number;
   rpeTarget?: number;
   notes?: string;
+  alternatives?: string[]; // fallback exercise IDs
 }
 
 export interface ProgramDay {
   id: string;
   name: string;
   dayNumber: number;
+  type: 'strength' | 'hypertrophy' | 'fullbody' | 'cardio' | 'optional' | 'rest';
   exercises: ProgramExercise[];
 }
 
@@ -64,6 +84,61 @@ export interface ActiveWorkout {
   dayName: string;
   plannedExercises: ProgramExercise[];
   sets: SetLog[];
+  swaps: Record<string, string>; // originalId → swappedId
+}
+
+export interface MuscleReadinessMap {
+  chest: MuscleReadiness;
+  back: MuscleReadiness;
+  shoulders: MuscleReadiness;
+  arms: MuscleReadiness;
+  quads: MuscleReadiness;
+  hamstrings: MuscleReadiness;
+  glutes: MuscleReadiness;
+  core: MuscleReadiness;
+  lowerBack: MuscleReadiness;
+}
+
+export interface ReadinessCheckin {
+  id: string;
+  date: string;
+  sleepHours: number;
+  sleepQuality: 1 | 2 | 3 | 4 | 5;
+  nutrition: 1 | 2 | 3 | 4 | 5;
+  stress: 1 | 2 | 3 | 4 | 5;
+  overallEnergy: 1 | 2 | 3 | 4 | 5;
+  muscleReadiness: MuscleReadinessMap;
+  notes: string;
+  aiSuggestion?: string;
+}
+
+export interface WeeklyReview {
+  id: string;
+  weekNumber: number;
+  date: string;
+  overallRating: 1 | 2 | 3 | 4 | 5;
+  strengthFeel: 1 | 2 | 3 | 4 | 5;
+  recoveryFeel: 1 | 2 | 3 | 4 | 5;
+  motivation: 1 | 2 | 3 | 4 | 5;
+  jointHealth: 1 | 2 | 3 | 4 | 5;
+  hitAllSessions: 'yes' | 'partial' | 'no';
+  notes: string;
+  aiAnalysis?: string;
+}
+
+export interface CardioLog {
+  id: string;
+  date: string;
+  type: 'basketball' | 'running' | 'cycling' | 'swimming' | 'other';
+  duration: number; // minutes
+  intensity: 'low' | 'moderate' | 'high';
+  notes: string;
+}
+
+export interface Mesocycle {
+  startDate: string;
+  totalWeeks: number;
+  currentWeek: number; // 1-indexed
 }
 
 export interface AppState {
@@ -76,6 +151,11 @@ export interface AppState {
     weightUnit: WeightUnit;
     defaultRestSeconds: number;
   };
+  userProfile: UserProfile | null;
+  mesocycle: Mesocycle;
+  readinessLogs: ReadinessCheckin[];
+  cardioLogs: CardioLog[];
+  weeklyReviews: WeeklyReview[];
 }
 
 export type AppAction =
@@ -85,8 +165,14 @@ export type AppAction =
   | { type: 'START_WORKOUT'; workout: ActiveWorkout }
   | { type: 'LOG_SET'; set: SetLog }
   | { type: 'REMOVE_SET'; setId: string }
+  | { type: 'SWAP_EXERCISE'; originalId: string; replacementId: string }
   | { type: 'FINISH_WORKOUT'; log: WorkoutLog }
   | { type: 'CANCEL_WORKOUT' }
   | { type: 'ADVANCE_DAY' }
   | { type: 'UPDATE_SETTINGS'; settings: Partial<AppState['settings']> }
+  | { type: 'SET_PROFILE'; profile: UserProfile }
+  | { type: 'UPDATE_MESOCYCLE'; mesocycle: Partial<Mesocycle> }
+  | { type: 'ADD_READINESS'; checkin: ReadinessCheckin }
+  | { type: 'ADD_CARDIO_LOG'; log: CardioLog }
+  | { type: 'ADD_WEEKLY_REVIEW'; review: WeeklyReview }
   | { type: 'LOAD_STATE'; state: AppState };

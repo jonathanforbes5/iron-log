@@ -1,9 +1,18 @@
 'use client';
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
-import { AppState, AppAction, Program, WorkoutLog, SetLog, ActiveWorkout } from './types';
+import {
+  AppState, AppAction, Program, WorkoutLog, SetLog,
+  ActiveWorkout, UserProfile, ReadinessCheckin, CardioLog, WeeklyReview, Mesocycle,
+} from './types';
 
-const STORAGE_KEY = 'wt_state_v1';
+const STORAGE_KEY = 'ironlog_v2';
+
+const DEFAULT_MESOCYCLE: Mesocycle = {
+  startDate: new Date().toISOString().slice(0, 10),
+  totalWeeks: 7,
+  currentWeek: 1,
+};
 
 const defaultState: AppState = {
   programs: [],
@@ -11,16 +20,18 @@ const defaultState: AppState = {
   currentDayIndex: 0,
   workoutLogs: [],
   activeWorkout: null,
-  settings: {
-    weightUnit: 'lbs',
-    defaultRestSeconds: 180,
-  },
+  settings: { weightUnit: 'lbs', defaultRestSeconds: 180 },
+  userProfile: null,
+  mesocycle: DEFAULT_MESOCYCLE,
+  readinessLogs: [],
+  cardioLogs: [],
+  weeklyReviews: [],
 };
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'LOAD_STATE':
-      return action.state;
+      return { ...defaultState, ...action.state };
 
     case 'ADD_PROGRAM':
       return { ...state, programs: [...state.programs, action.program] };
@@ -41,10 +52,7 @@ function reducer(state: AppState, action: AppAction): AppState {
       if (!state.activeWorkout) return state;
       return {
         ...state,
-        activeWorkout: {
-          ...state.activeWorkout,
-          sets: [...state.activeWorkout.sets, action.set],
-        },
+        activeWorkout: { ...state.activeWorkout, sets: [...state.activeWorkout.sets, action.set] },
       };
 
     case 'REMOVE_SET':
@@ -54,6 +62,16 @@ function reducer(state: AppState, action: AppAction): AppState {
         activeWorkout: {
           ...state.activeWorkout,
           sets: state.activeWorkout.sets.filter(s => s.id !== action.setId),
+        },
+      };
+
+    case 'SWAP_EXERCISE':
+      if (!state.activeWorkout) return state;
+      return {
+        ...state,
+        activeWorkout: {
+          ...state.activeWorkout,
+          swaps: { ...state.activeWorkout.swaps, [action.originalId]: action.replacementId },
         },
       };
 
@@ -86,6 +104,33 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'UPDATE_SETTINGS':
       return { ...state, settings: { ...state.settings, ...action.settings } };
 
+    case 'SET_PROFILE':
+      return { ...state, userProfile: action.profile };
+
+    case 'UPDATE_MESOCYCLE':
+      return { ...state, mesocycle: { ...state.mesocycle, ...action.mesocycle } };
+
+    case 'ADD_READINESS':
+      return {
+        ...state,
+        readinessLogs: [
+          action.checkin,
+          ...state.readinessLogs.filter(r => r.date !== action.checkin.date),
+        ],
+      };
+
+    case 'ADD_CARDIO_LOG':
+      return { ...state, cardioLogs: [action.log, ...state.cardioLogs] };
+
+    case 'ADD_WEEKLY_REVIEW':
+      return {
+        ...state,
+        weeklyReviews: [
+          action.review,
+          ...state.weeklyReviews.filter(r => r.weekNumber !== action.review.weekNumber),
+        ],
+      };
+
     default:
       return state;
   }
@@ -102,7 +147,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, defaultState);
   const initialized = React.useRef(false);
 
-  // Load from localStorage on mount
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
@@ -112,19 +156,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const parsed = JSON.parse(raw) as AppState;
         dispatch({ type: 'LOAD_STATE', state: { ...defaultState, ...parsed } });
       }
-    } catch {
-      // ignore corrupt state
-    }
+    } catch { /* ignore */ }
   }, []);
 
-  // Persist to localStorage on every state change
   useEffect(() => {
     if (!initialized.current) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      // ignore storage errors
-    }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
   }, [state]);
 
   return <StoreContext.Provider value={{ state, dispatch }}>{children}</StoreContext.Provider>;
@@ -136,12 +173,19 @@ export function useStore() {
   return ctx;
 }
 
-// Convenience hooks
+// ── Convenience hooks ────────────────────────────────────────────────────────
+
+export function useProfile() {
+  const { state, dispatch } = useStore();
+  const setProfile = useCallback((profile: UserProfile) => dispatch({ type: 'SET_PROFILE', profile }), [dispatch]);
+  return { profile: state.userProfile, setProfile };
+}
+
 export function usePrograms() {
   const { state, dispatch } = useStore();
-  const addProgram = useCallback((program: Program) => dispatch({ type: 'ADD_PROGRAM', program }), [dispatch]);
+  const addProgram   = useCallback((program: Program) => dispatch({ type: 'ADD_PROGRAM', program }), [dispatch]);
   const deleteProgram = useCallback((id: string) => dispatch({ type: 'DELETE_PROGRAM', id }), [dispatch]);
-  const setActive = useCallback((id: string | null) => dispatch({ type: 'SET_ACTIVE_PROGRAM', id }), [dispatch]);
+  const setActive    = useCallback((id: string | null) => dispatch({ type: 'SET_ACTIVE_PROGRAM', id }), [dispatch]);
   return { programs: state.programs, activeProgramId: state.activeProgramId, addProgram, deleteProgram, setActive };
 }
 
@@ -154,18 +198,14 @@ export function useActiveProgram() {
 
 export function useWorkout() {
   const { state, dispatch } = useStore();
-  const startWorkout = useCallback((workout: ActiveWorkout) => dispatch({ type: 'START_WORKOUT', workout }), [dispatch]);
-  const logSet = useCallback((set: SetLog) => dispatch({ type: 'LOG_SET', set }), [dispatch]);
-  const removeSet = useCallback((setId: string) => dispatch({ type: 'REMOVE_SET', setId }), [dispatch]);
-  const finishWorkout = useCallback((log: WorkoutLog) => dispatch({ type: 'FINISH_WORKOUT', log }), [dispatch]);
-  const cancelWorkout = useCallback(() => dispatch({ type: 'CANCEL_WORKOUT' }), [dispatch]);
   return {
     activeWorkout: state.activeWorkout,
-    startWorkout,
-    logSet,
-    removeSet,
-    finishWorkout,
-    cancelWorkout,
+    startWorkout:   useCallback((w: ActiveWorkout) => dispatch({ type: 'START_WORKOUT', workout: w }), [dispatch]),
+    logSet:         useCallback((s: SetLog) => dispatch({ type: 'LOG_SET', set: s }), [dispatch]),
+    removeSet:      useCallback((id: string) => dispatch({ type: 'REMOVE_SET', setId: id }), [dispatch]),
+    swapExercise:   useCallback((orig: string, rep: string) => dispatch({ type: 'SWAP_EXERCISE', originalId: orig, replacementId: rep }), [dispatch]),
+    finishWorkout:  useCallback((log: WorkoutLog) => dispatch({ type: 'FINISH_WORKOUT', log }), [dispatch]),
+    cancelWorkout:  useCallback(() => dispatch({ type: 'CANCEL_WORKOUT' }), [dispatch]),
   };
 }
 
@@ -174,10 +214,35 @@ export function useLogs() {
   return state.workoutLogs;
 }
 
+export function useReadiness() {
+  const { state, dispatch } = useStore();
+  const addCheckin = useCallback((c: ReadinessCheckin) => dispatch({ type: 'ADD_READINESS', checkin: c }), [dispatch]);
+  const todayLog = state.readinessLogs.find(r => r.date === new Date().toISOString().slice(0, 10)) ?? null;
+  return { readinessLogs: state.readinessLogs, todayLog, addCheckin };
+}
+
+export function useCardio() {
+  const { state, dispatch } = useStore();
+  const addCardio = useCallback((log: CardioLog) => dispatch({ type: 'ADD_CARDIO_LOG', log }), [dispatch]);
+  return { cardioLogs: state.cardioLogs, addCardio };
+}
+
+export function useWeeklyReview() {
+  const { state, dispatch } = useStore();
+  const addReview = useCallback((r: WeeklyReview) => dispatch({ type: 'ADD_WEEKLY_REVIEW', review: r }), [dispatch]);
+  return { weeklyReviews: state.weeklyReviews, addReview };
+}
+
+export function useMesocycle() {
+  const { state, dispatch } = useStore();
+  const update = useCallback((m: Partial<Mesocycle>) => dispatch({ type: 'UPDATE_MESOCYCLE', mesocycle: m }), [dispatch]);
+  return { mesocycle: state.mesocycle, updateMesocycle: update };
+}
+
 export function useSettings() {
   const { state, dispatch } = useStore();
   const updateSettings = useCallback(
-    (settings: Partial<AppState['settings']>) => dispatch({ type: 'UPDATE_SETTINGS', settings }),
+    (s: Partial<AppState['settings']>) => dispatch({ type: 'UPDATE_SETTINGS', settings: s }),
     [dispatch]
   );
   return { settings: state.settings, updateSettings };

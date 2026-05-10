@@ -2,13 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Dumbbell, History, TrendingUp, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, Dumbbell, Activity, TrendingUp, ClipboardList } from 'lucide-react';
 
 const links = [
   { href: '/', icon: LayoutDashboard, label: 'Home' },
   { href: '/program', icon: ClipboardList, label: 'Program' },
   { href: '/workout', icon: Dumbbell, label: 'Workout' },
-  { href: '/history', icon: History, label: 'History' },
+  { href: '/readiness', icon: Activity, label: 'Check-in' },
   { href: '/progress', icon: TrendingUp, label: 'Progress' },
 ];
 

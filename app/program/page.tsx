@@ -225,12 +225,12 @@ function ProgramDetail({
 function NewProgram({ onSave, onCancel }: { onSave: (p: Program) => void; onCancel: () => void }) {
   const [name, setName] = useState('');
   const [days, setDays] = useState<ProgramDay[]>([
-    { id: uid(), name: 'Day 1', dayNumber: 1, exercises: [] },
+    { id: uid(), name: 'Day 1', dayNumber: 1, exercises: [], type: 'strength' },
   ]);
   const [editingDay, setEditingDay] = useState<string | null>(days[0].id);
 
   function addDay() {
-    const newDay: ProgramDay = { id: uid(), name: `Day ${days.length + 1}`, dayNumber: days.length + 1, exercises: [] };
+    const newDay: ProgramDay = { id: uid(), name: `Day ${days.length + 1}`, dayNumber: days.length + 1, exercises: [], type: 'strength' };
     setDays(d => [...d, newDay]);
   }
 
