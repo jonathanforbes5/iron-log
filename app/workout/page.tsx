@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach } from '@/lib/store';
-import { ActiveWorkout, ProgramExercise, SetLog, CardioLog } from '@/lib/types';
+import { ActiveWorkout, ProgramExercise, SetLog, CardioLog, WorkoutLog } from '@/lib/types';
 import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES } from '@/lib/exercises';
 import {
   calcE1RM, getLastPerformance, getPreviousBest, uid, rpeColor, formatDuration,
   getSuggestedWeightRange, totalVolume, workingSetCount, calcPlates, getWarmupRamp,
 } from '@/lib/utils';
 import { getAdvancedCoachingAnalysis } from '@/lib/ai';
-import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap } from 'lucide-react';
+import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap, Eye } from 'lucide-react';
 import Link from 'next/link';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,6 +23,7 @@ export default function WorkoutPage() {
   const { addCardio } = useCardio();
   const { addActions } = useAICoach();
   const [showCardio, setShowCardio] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [finishedLog, setFinishedLog] = useState<import('@/lib/types').WorkoutLog | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -111,6 +112,19 @@ export default function WorkoutPage() {
     return <CardioLogger onSave={(log) => { addCardio(log); setShowCardio(false); }} onCancel={() => setShowCardio(false)} />;
   }
 
+  if (showPreview && program && currentDay) {
+    return (
+      <WorkoutPreview
+        program={program}
+        day={currentDay}
+        logs={logs}
+        profile={profile}
+        onStart={() => { setShowPreview(false); handleStart(currentDay.name, currentDay.exercises); }}
+        onClose={() => setShowPreview(false)}
+      />
+    );
+  }
+
   return (
     <div className="px-4 pt-6 space-y-4">
       <h1 className="text-2xl font-black tracking-tight">Start Workout</h1>
@@ -124,13 +138,17 @@ export default function WorkoutPage() {
           <div className="p-4 space-y-2">
             {currentDay.exercises.map((ex, i) => {
               const suggested = profile ? getSuggestedWeightRange(ex.exerciseId, ex.repsMin, ex.repsMax, ex.rpeTarget ?? 8, profile) : null;
+              const lastPerf = getLastPerformance(logs, ex.exerciseId);
               return (
                 <div key={i} className="flex items-center gap-3 py-1">
                   <span className="text-zinc-700 text-xs w-4">{i+1}.</span>
                   <div className="flex-1">
                     <span className="text-sm font-semibold">{getExerciseName(ex.exerciseId)}</span>
                     {suggested && (
-                      <span className="text-xs text-orange-400 ml-2">~{suggested.low}–{suggested.high} lbs</span>
+                      <span className="text-xs text-orange-400 ml-2">~{suggested.low}–{suggested.high}</span>
+                    )}
+                    {lastPerf && (
+                      <span className="text-xs text-zinc-600 ml-2">Last: {lastPerf.weight}×{lastPerf.reps}</span>
                     )}
                   </div>
                   <span className="text-xs text-zinc-500 flex-shrink-0">
@@ -140,10 +158,14 @@ export default function WorkoutPage() {
               );
             })}
           </div>
-          <div className="px-4 pb-4">
+          <div className="px-4 pb-4 flex gap-2">
+            <button onClick={() => setShowPreview(true)}
+              className="flex items-center gap-1.5 border border-zinc-700 hover:border-zinc-600 text-zinc-400 hover:text-zinc-200 font-bold py-3 px-4 rounded-xl transition-colors text-sm flex-shrink-0">
+              <Eye size={15} /> Preview
+            </button>
             <button onClick={() => handleStart(currentDay.name, currentDay.exercises)}
-              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-4 rounded-xl transition-colors active:scale-[0.98] text-lg">
-              Start This Workout
+              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-xl transition-colors active:scale-[0.98] text-base">
+              Start Workout
             </button>
           </div>
         </div>
@@ -163,6 +185,90 @@ export default function WorkoutPage() {
         className="w-full flex items-center justify-center gap-2 border border-dashed border-blue-500/40 hover:border-blue-500/60 text-blue-400 hover:text-blue-300 py-4 rounded-2xl text-sm font-semibold transition-colors">
         <Activity size={16} />
         Log Cardio / Basketball
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workout Preview (read-only, no timer started)
+// ─────────────────────────────────────────────────────────────────────────────
+function WorkoutPreview({ program, day, logs, profile, onStart, onClose }: {
+  program: import('@/lib/types').Program;
+  day: import('@/lib/types').ProgramDay;
+  logs: WorkoutLog[];
+  profile: ReturnType<typeof useProfile>['profile'];
+  onStart: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="px-4 pt-6 pb-6 space-y-4">
+      <div className="flex items-center gap-3">
+        <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors text-sm">← Back</button>
+        <div className="flex-1">
+          <p className="text-xs text-zinc-500">{program.name}</p>
+          <h1 className="text-xl font-black">{day.name}</h1>
+        </div>
+        <span className="text-xs text-zinc-600">{day.exercises.length} exercises</span>
+      </div>
+
+      <div className="space-y-3">
+        {day.exercises.map((ex, i) => {
+          const suggested = profile
+            ? getSuggestedWeightRange(ex.exerciseId, ex.repsMin, ex.repsMax, ex.rpeTarget ?? 8, profile)
+            : null;
+          const recent = getLastPerformance(logs, ex.exerciseId);
+          // Find prior performance (most recent before the last one)
+          const olderLogs = recent
+            ? logs.filter(l => l.date < recent.date)
+            : [];
+          const prior = getLastPerformance(olderLogs, ex.exerciseId);
+
+          return (
+            <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-zinc-600 text-xs">{i + 1}.</span>
+                    <h3 className="font-bold truncate">{getExerciseName(ex.exerciseId)}</h3>
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-0.5 ml-4">
+                    {ex.sets} sets × {ex.repsMin}–{ex.repsMax} reps
+                    {ex.rpeTarget ? ` · RPE ${ex.rpeTarget}` : ''}
+                  </p>
+                </div>
+                {suggested && (
+                  <span className="text-orange-400 text-sm font-bold flex-shrink-0">
+                    {suggested.low}–{suggested.high} lbs
+                  </span>
+                )}
+              </div>
+              {(recent || prior) && (
+                <div className="mt-2 ml-4 flex gap-4 text-xs">
+                  {recent && (
+                    <span className="text-zinc-500">
+                      Last: <span className="text-zinc-200 font-semibold">{recent.weight} × {recent.reps}</span>
+                      <span className="text-zinc-600"> ({recent.date})</span>
+                    </span>
+                  )}
+                  {prior && (
+                    <span className="text-zinc-600">
+                      Prior: {prior.weight} × {prior.reps}
+                    </span>
+                  )}
+                </div>
+              )}
+              {ex.notes && (
+                <p className="text-xs text-orange-400 italic mt-1.5 ml-4">{ex.notes}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <button onClick={onStart}
+        className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-4 rounded-2xl transition-colors active:scale-[0.98] text-lg sticky bottom-4">
+        Start Workout
       </button>
     </div>
   );
@@ -300,6 +406,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
               allTimeBest={allTimeBests[exerciseId] ?? null}
               suggestedWeight={suggested}
               alternatives={alternatives}
+              logs={logs}
               onLogSet={handleLogSet}
               onRemoveSet={onRemoveSet}
               onSwap={rep => onSwap(originalId, rep)}
@@ -335,7 +442,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
 // ─────────────────────────────────────────────────────────────────────────────
 // Exercise Card
 // ─────────────────────────────────────────────────────────────────────────────
-function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, allTimeBest, suggestedWeight, alternatives, onLogSet, onRemoveSet, onSwap }: {
+function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, allTimeBest, suggestedWeight, alternatives, logs, onLogSet, onRemoveSet, onSwap }: {
   exerciseId: string;
   originalId: string;
   planned?: ProgramExercise;
@@ -344,6 +451,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   allTimeBest: number | null;
   suggestedWeight: { low: number; high: number } | null;
   alternatives: string[];
+  logs: WorkoutLog[];
   onLogSet: (s: SetLog) => void;
   onRemoveSet: (id: string) => void;
   onSwap: (replacementId: string) => void;
@@ -357,6 +465,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   const [showSwap, setShowSwap] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [showPlates, setShowPlates] = useState(false);
+  const [quickLog, setQuickLog] = useState(false);
   const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
   // Track the best e1RM so far in this session (starts at allTimeBest)
   const sessionBest = useRef<number>(allTimeBest ?? 0);
@@ -400,6 +509,23 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
     }
     onLogSet({ id: setId, exerciseId, exerciseName: getExerciseName(exerciseId), setNumber: sets.length + 1, weight: w, reps: r, rpe: rpe ? parseFloat(rpe) : undefined, isWarmup });
     setIsWarmup(false);
+  }
+
+  function handleQuickLogAll(w: number, repsArr: number[], warmup: boolean) {
+    for (let i = 0; i < repsArr.length; i++) {
+      const r = repsArr[i];
+      if (!r) continue;
+      const setId = uid();
+      if (!warmup) {
+        const thisE1rm = calcE1RM(w, r);
+        if (thisE1rm > sessionBest.current) {
+          setPrSetIds(prev => new Set([...prev, setId]));
+          sessionBest.current = thisE1rm;
+        }
+      }
+      onLogSet({ id: setId, exerciseId, exerciseName: getExerciseName(exerciseId), setNumber: sets.length + 1 + i, weight: w, reps: r, isWarmup: warmup });
+    }
+    setQuickLog(false);
   }
 
   return (
@@ -469,15 +595,36 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
       {/* Swap panel */}
       {showSwap && (
         <div className="mx-4 mb-3 bg-zinc-800/60 rounded-xl overflow-hidden">
-          <p className="text-xs text-zinc-500 px-3 py-2 border-b border-zinc-700">Swap to:</p>
-          <div className="max-h-40 overflow-y-auto">
-            {alternatives.map(altId => (
-              <button key={altId} onClick={() => { onSwap(altId); setShowSwap(false); }}
-                className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-zinc-700 text-left transition-colors border-b border-zinc-700/50 last:border-0">
-                <span className="text-sm">{getExerciseName(altId)}</span>
-                <Check size={13} className="text-zinc-600" />
-              </button>
-            ))}
+          <div className="px-3 py-2 border-b border-zinc-700">
+            <p className="text-xs text-zinc-500">Swap to:</p>
+            {lastPerformance && (
+              <p className="text-[10px] text-zinc-600 mt-0.5">
+                Current last: <span className="text-zinc-400">{lastPerformance.weight} × {lastPerformance.reps}</span>
+                <span className="ml-1">({lastPerformance.date})</span>
+              </p>
+            )}
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            {alternatives.map(altId => {
+              const altLast = getLastPerformance(logs, altId);
+              return (
+                <button key={altId} onClick={() => { onSwap(altId); setShowSwap(false); }}
+                  className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-zinc-700 text-left transition-colors border-b border-zinc-700/50 last:border-0">
+                  <div>
+                    <span className="text-sm font-semibold">{getExerciseName(altId)}</span>
+                    {altLast ? (
+                      <p className="text-[10px] text-zinc-500 mt-0.5">
+                        Last: {altLast.weight} × {altLast.reps}
+                        <span className="text-zinc-600 ml-1">({altLast.date})</span>
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-zinc-600 mt-0.5">No history</p>
+                    )}
+                  </div>
+                  <Check size={13} className="text-zinc-600 flex-shrink-0" />
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -531,100 +678,121 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
             </div>
           )}
 
-          {/* Input row with +/- buttons */}
+          {/* Input area — single set or quick multi-set */}
           <div className="px-4 pb-4 space-y-3">
-            <div className="grid grid-cols-3 gap-2">
-              {/* Weight */}
-              <div>
-                <p className="text-[10px] text-zinc-600 mb-1 text-center">Weight (lbs)</p>
-                <div className="flex items-stretch">
-                  <button onClick={() => stepWeight(-2.5)}
-                    className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-l-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
-                    <Minus size={12} />
-                  </button>
-                  <input type="number" value={weight} onChange={e => setWeight(e.target.value)}
-                    className="flex-1 min-w-0 bg-zinc-800 border-y border-zinc-700 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin py-2.5" />
-                  <button onClick={() => stepWeight(2.5)}
-                    className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-r-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
-                    <Plus size={12} />
-                  </button>
-                </div>
-              </div>
-              {/* Reps */}
-              <div>
-                <p className="text-[10px] text-zinc-600 mb-1 text-center">Reps</p>
-                <div className="flex items-stretch">
-                  <button onClick={() => stepReps(-1)}
-                    className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-l-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
-                    <Minus size={12} />
-                  </button>
-                  <input type="number" value={reps} onChange={e => setReps(e.target.value)}
-                    className="flex-1 min-w-0 bg-zinc-800 border-y border-zinc-700 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin py-2.5" />
-                  <button onClick={() => stepReps(1)}
-                    className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-r-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
-                    <Plus size={12} />
-                  </button>
-                </div>
-              </div>
-              {/* RPE */}
-              <div>
-                <p className="text-[10px] text-zinc-600 mb-1 text-center">RPE</p>
-                <input type="number" placeholder="6–10" value={rpe} onChange={e => setRpe(e.target.value)}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg py-2.5 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin" />
-              </div>
-            </div>
 
-            {/* e1RM + plate toggle */}
-            {e1rm && (
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-zinc-500">
-                  e1RM: <span className={`font-bold ${allTimeBest && e1rm > allTimeBest ? 'text-yellow-400' : 'text-orange-400'}`}>{e1rm} lbs</span>
-                  {allTimeBest && e1rm > allTimeBest && <span className="text-yellow-400 ml-1">↑ PR</span>}
-                </span>
-                {plates.length > 0 && (
-                  <button onClick={() => setShowPlates(p => !p)}
-                    className="text-zinc-600 hover:text-zinc-300 underline decoration-dotted transition-colors">
-                    {showPlates ? 'Hide' : 'Plates'}
-                  </button>
-                )}
+            {/* Mode toggle (only when sets remaining) */}
+            {!isWarmup && workingSets.length < targetSets && (
+              <div className="flex justify-end">
+                <button onClick={() => setQuickLog(q => !q)}
+                  className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-colors ${quickLog ? 'border-orange-500/50 text-orange-400 bg-orange-500/10' : 'border-zinc-700 text-zinc-500 hover:text-zinc-300'}`}>
+                  {quickLog ? '← One set at a time' : `Log all ${targetSets - workingSets.length} sets at once`}
+                </button>
               </div>
             )}
 
-            {/* Plate calculator */}
-            {showPlates && plates.length > 0 && (
-              <div className="bg-zinc-800/60 rounded-xl p-3">
-                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Bar + Plates (per side)</p>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="bg-zinc-600 rounded px-2 py-1 text-xs font-bold">45 bar</div>
-                  {plates.map((p, i) => (
-                    <div key={i} className="flex items-center gap-1">
-                      <div className={`rounded px-2 py-1 text-xs font-bold ${
-                        p.weight === 45 ? 'bg-blue-600' : p.weight === 35 ? 'bg-yellow-600' :
-                        p.weight === 25 ? 'bg-green-600' : p.weight === 10 ? 'bg-zinc-500' :
-                        p.weight === 5 ? 'bg-zinc-600' : 'bg-zinc-700'
-                      }`}>
-                        {p.weight}
-                      </div>
-                      {p.count > 1 && <span className="text-xs text-zinc-500">×{p.count}</span>}
+            {quickLog && !isWarmup ? (
+              <QuickLogPanel
+                targetSets={targetSets - workingSets.length}
+                initWeight={weight}
+                initReps={planned?.repsMin ?? 5}
+                onLogAll={(w, repsArr) => handleQuickLogAll(w, repsArr, false)}
+                onCancel={() => setQuickLog(false)}
+              />
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {/* Weight */}
+                  <div>
+                    <p className="text-[10px] text-zinc-600 mb-1 text-center">Weight (lbs)</p>
+                    <div className="flex items-stretch">
+                      <button onClick={() => stepWeight(-2.5)}
+                        className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-l-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
+                        <Minus size={12} />
+                      </button>
+                      <input type="number" value={weight} onChange={e => setWeight(e.target.value)}
+                        className="flex-1 min-w-0 bg-zinc-800 border-y border-zinc-700 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin py-2.5" />
+                      <button onClick={() => stepWeight(2.5)}
+                        className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-r-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
+                        <Plus size={12} />
+                      </button>
                     </div>
-                  ))}
-                  <span className="text-xs text-zinc-600">per side</span>
+                  </div>
+                  {/* Reps */}
+                  <div>
+                    <p className="text-[10px] text-zinc-600 mb-1 text-center">Reps</p>
+                    <div className="flex items-stretch">
+                      <button onClick={() => stepReps(-1)}
+                        className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-l-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
+                        <Minus size={12} />
+                      </button>
+                      <input type="number" value={reps} onChange={e => setReps(e.target.value)}
+                        className="flex-1 min-w-0 bg-zinc-800 border-y border-zinc-700 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin py-2.5" />
+                      <button onClick={() => stepReps(1)}
+                        className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-r-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
+                        <Plus size={12} />
+                      </button>
+                    </div>
+                  </div>
+                  {/* RPE */}
+                  <div>
+                    <p className="text-[10px] text-zinc-600 mb-1 text-center">RPE</p>
+                    <input type="number" placeholder="6–10" value={rpe} onChange={e => setRpe(e.target.value)}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg py-2.5 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin" />
+                  </div>
                 </div>
-              </div>
-            )}
 
-            {/* Log row */}
-            <div className="flex gap-2">
-              <button onClick={() => setIsWarmup(w => !w)}
-                className={`flex-shrink-0 text-xs font-bold py-2.5 px-3 rounded-lg border transition-colors ${isWarmup ? 'border-yellow-500/50 text-yellow-400 bg-yellow-500/10' : 'border-zinc-700 text-zinc-500'}`}>
-                Warm-up
-              </button>
-              <button onClick={handleLog} disabled={!weight || !reps}
-                className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-2.5 rounded-lg transition-colors active:scale-[0.98]">
-                <Check size={15} />
-                Log Set
-              </button>
-            </div>
+                {/* e1RM + plate toggle */}
+                {e1rm && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-500">
+                      e1RM: <span className={`font-bold ${allTimeBest && e1rm > allTimeBest ? 'text-yellow-400' : 'text-orange-400'}`}>{e1rm} lbs</span>
+                      {allTimeBest && e1rm > allTimeBest && <span className="text-yellow-400 ml-1">↑ PR</span>}
+                    </span>
+                    {plates.length > 0 && (
+                      <button onClick={() => setShowPlates(p => !p)}
+                        className="text-zinc-600 hover:text-zinc-300 underline decoration-dotted transition-colors">
+                        {showPlates ? 'Hide' : 'Plates'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {showPlates && plates.length > 0 && (
+                  <div className="bg-zinc-800/60 rounded-xl p-3">
+                    <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Bar + Plates (per side)</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="bg-zinc-600 rounded px-2 py-1 text-xs font-bold">45 bar</div>
+                      {plates.map((p, i) => (
+                        <div key={i} className="flex items-center gap-1">
+                          <div className={`rounded px-2 py-1 text-xs font-bold ${
+                            p.weight === 45 ? 'bg-blue-600' : p.weight === 35 ? 'bg-yellow-600' :
+                            p.weight === 25 ? 'bg-green-600' : p.weight === 10 ? 'bg-zinc-500' :
+                            p.weight === 5 ? 'bg-zinc-600' : 'bg-zinc-700'
+                          }`}>
+                            {p.weight}
+                          </div>
+                          {p.count > 1 && <span className="text-xs text-zinc-500">×{p.count}</span>}
+                        </div>
+                      ))}
+                      <span className="text-xs text-zinc-600">per side</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button onClick={() => setIsWarmup(w => !w)}
+                    className={`flex-shrink-0 text-xs font-bold py-2.5 px-3 rounded-lg border transition-colors ${isWarmup ? 'border-yellow-500/50 text-yellow-400 bg-yellow-500/10' : 'border-zinc-700 text-zinc-500'}`}>
+                    Warm-up
+                  </button>
+                  <button onClick={handleLog} disabled={!weight || !reps}
+                    className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-2.5 rounded-lg transition-colors active:scale-[0.98]">
+                    <Check size={15} />
+                    Log Set
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </>
       )}
@@ -670,6 +838,87 @@ function AddExerciseButton({ onAdd }: { onAdd: (id: string) => void }) {
         ))}
       </div>
       <button onClick={() => setOpen(false)} className="w-full py-2.5 text-xs text-zinc-500 border-t border-zinc-800">Cancel</button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quick Log Panel — log N sets at once with per-set reps
+// ─────────────────────────────────────────────────────────────────────────────
+function QuickLogPanel({ targetSets, initWeight, initReps, onLogAll, onCancel }: {
+  targetSets: number;
+  initWeight: string;
+  initReps: number;
+  onLogAll: (weight: number, repsArr: number[]) => void;
+  onCancel: () => void;
+}) {
+  const [weight, setWeight] = useState(initWeight);
+  const [repsArr, setRepsArr] = useState<string[]>(Array(targetSets).fill(String(initReps)));
+
+  function setRepAt(i: number, val: string) {
+    setRepsArr(prev => { const next = [...prev]; next[i] = val; return next; });
+  }
+  function stepRepAt(i: number, delta: number) {
+    setRepsArr(prev => {
+      const next = [...prev];
+      next[i] = String(Math.max(1, (parseInt(next[i]) || 0) + delta));
+      return next;
+    });
+  }
+
+  function handleLogAll() {
+    const w = parseFloat(weight);
+    if (!w) return;
+    onLogAll(w, repsArr.map(r => parseInt(r) || 0));
+  }
+
+  return (
+    <div className="bg-zinc-800/50 rounded-xl p-3 space-y-3">
+      {/* Shared weight */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-zinc-400 font-bold w-16 flex-shrink-0">Weight</span>
+        <div className="flex items-stretch flex-1">
+          <button onClick={() => setWeight(v => String(Math.max(0, Math.round(((parseFloat(v)||0) - 2.5)*10)/10)))}
+            className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-l-lg flex items-center justify-center text-zinc-300 transition-colors">
+            <Minus size={11} />
+          </button>
+          <input type="number" value={weight} onChange={e => setWeight(e.target.value)}
+            className="flex-1 bg-zinc-800 border-y border-zinc-700 text-center text-sm font-bold focus:outline-none no-spin py-2" />
+          <button onClick={() => setWeight(v => String(Math.round(((parseFloat(v)||0) + 2.5)*10)/10))}
+            className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-r-lg flex items-center justify-center text-zinc-300 transition-colors">
+            <Plus size={11} />
+          </button>
+        </div>
+        <span className="text-xs text-zinc-600">lbs</span>
+      </div>
+
+      {/* Per-set reps */}
+      <div className="space-y-2">
+        {repsArr.map((r, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500 w-10 flex-shrink-0 font-semibold">Set {i + 1}</span>
+            <div className="flex items-stretch flex-1">
+              <button onClick={() => stepRepAt(i, -1)}
+                className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-l-lg flex items-center justify-center text-zinc-300 transition-colors">
+                <Minus size={11} />
+              </button>
+              <input type="number" value={r} onChange={e => setRepAt(i, e.target.value)}
+                className="flex-1 bg-zinc-800 border-y border-zinc-700 text-center text-sm font-bold focus:outline-none no-spin py-1.5" />
+              <button onClick={() => stepRepAt(i, 1)}
+                className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-r-lg flex items-center justify-center text-zinc-300 transition-colors">
+                <Plus size={11} />
+              </button>
+            </div>
+            <span className="text-xs text-zinc-600 w-7">reps</span>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={handleLogAll} disabled={!parseFloat(weight)}
+        className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-2.5 rounded-lg transition-colors active:scale-[0.98]">
+        <Check size={14} />
+        Log All {targetSets} Sets
+      </button>
     </div>
   );
 }

@@ -247,9 +247,13 @@ function WeekCalendar({ logDates, cardioDateSet, today }: {
   cardioDateSet: Set<string>;
   today: string;
 }) {
+  // Build Mon–Sun of the current week
+  const base = new Date();
+  const dow = base.getDay();
+  base.setDate(base.getDate() - (dow === 0 ? 6 : dow - 1)); // rewind to Monday
   const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
     return d.toISOString().slice(0, 10);
   });
 
@@ -296,7 +300,6 @@ function MesocycleCalendar({ logs, cardioLogs, mesocycle, today }: {
   const logDates = new Set(logs.map(l => l.date));
   const cardioDateSet = new Set(cardioLogs.map(c => c.date));
   const start = new Date(mesocycle.startDate + 'T12:00');
-  const totalDays = mesocycle.totalWeeks * 7;
 
   const weeks = Array.from({ length: mesocycle.totalWeeks }, (_, wi) => {
     return Array.from({ length: 7 }, (_, di) => {
@@ -306,6 +309,11 @@ function MesocycleCalendar({ logs, cardioLogs, mesocycle, today }: {
     });
   });
 
+  // Column day headers derived from week-1 dates
+  const dayHeaders = (weeks[0] ?? []).map(d =>
+    new Date(d + 'T12:00').toLocaleDateString('en-US', { weekday: 'narrow' })
+  );
+
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
@@ -314,6 +322,17 @@ function MesocycleCalendar({ logs, cardioLogs, mesocycle, today }: {
           <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Mesocycle — {mesocycle.totalWeeks} Weeks</span>
         </div>
         <Link href="/review" className="text-xs text-orange-400">Review →</Link>
+      </div>
+
+      {/* Day-of-week headers */}
+      <div className="flex items-center gap-2 mb-1">
+        <span className="w-5" />
+        <div className="flex gap-1 flex-1">
+          {dayHeaders.map((lbl, i) => (
+            <span key={i} className="flex-1 text-center text-[9px] text-zinc-600">{lbl}</span>
+          ))}
+        </div>
+        <span className="w-8" />
       </div>
 
       <div className="space-y-2">

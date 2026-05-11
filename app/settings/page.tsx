@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useProfile, useSettings, useSync } from '@/lib/store';
+import { useProfile, useSettings, useSync, useMesocycle } from '@/lib/store';
 import { ExperienceLevel, Goal } from '@/lib/types';
-import { ChevronLeft, Save, Cloud, CloudOff, Key, Dumbbell, User, RefreshCw } from 'lucide-react';
+import { ChevronLeft, Save, Cloud, CloudOff, Key, Dumbbell, User, RefreshCw, Calendar } from 'lucide-react';
 
 const MAIN_LIFTS = [
   { id: 'squat',    label: 'Back Squat' },
@@ -19,9 +19,14 @@ export default function SettingsPage() {
   const router = useRouter();
   const { profile, updateProfile } = useProfile();
   const { settings, updateSettings } = useSettings();
+  const { mesocycle, updateMesocycle } = useMesocycle();
   const { syncing, syncError } = useSync();
 
   const [saved, setSaved] = useState(false);
+
+  // Mesocycle fields
+  const [mesoStart, setMesoStart] = useState(mesocycle.startDate);
+  const [mesoWeeks, setMesoWeeks] = useState(String(mesocycle.totalWeeks));
 
   // Profile fields
   const [name, setName] = useState(profile?.name ?? '');
@@ -63,6 +68,11 @@ export default function SettingsPage() {
       maxLifts: liftNums,
       claudeApiKey: claudeApiKey.trim() || undefined,
     });
+
+    const weeks = parseInt(mesoWeeks);
+    if (mesoStart && weeks >= 2 && weeks <= 20) {
+      updateMesocycle({ startDate: mesoStart, totalWeeks: weeks });
+    }
 
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -182,6 +192,32 @@ export default function SettingsPage() {
         <p className="text-xs text-zinc-600 mt-1">
           Used for readiness feedback, post-workout analysis, weekly coaching, and AI-driven program adjustments. Stored locally and synced encrypted. Get yours at console.anthropic.com.
         </p>
+      </Section>
+
+      {/* Mesocycle */}
+      <Section icon={<Calendar size={15} className="text-orange-400" />} title="Mesocycle">
+        <p className="text-xs text-zinc-500 -mt-1">Set the start date and length of your training block. Week 1 begins on the start date.</p>
+        <div className="grid grid-cols-2 gap-3 mt-1">
+          <Field label="Start Date">
+            <input
+              type="date"
+              value={mesoStart}
+              onChange={e => setMesoStart(e.target.value)}
+              className={cls}
+            />
+          </Field>
+          <Field label="Total Weeks">
+            <input
+              type="number"
+              value={mesoWeeks}
+              onChange={e => setMesoWeeks(e.target.value)}
+              min={2}
+              max={20}
+              className={cls + ' no-spin'}
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-zinc-600 mt-1">Current: Week {mesocycle.currentWeek} of {mesocycle.totalWeeks} (started {mesocycle.startDate})</p>
       </Section>
 
       {/* Preferences */}

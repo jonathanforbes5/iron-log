@@ -53,7 +53,8 @@ export default function ProgressPage() {
 
   // Weekly sets per muscle group
   const weekStart = new Date();
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const _dow = weekStart.getDay();
+  weekStart.setDate(weekStart.getDate() - (_dow === 0 ? 6 : _dow - 1)); // anchor Monday
   const weekStartStr = weekStart.toISOString().slice(0, 10);
   const weekSets = logs.flatMap(l => l.date >= weekStartStr ? l.sets.filter(s => !s.isWarmup) : []);
   const muscleSetMap: Record<string, number> = {};

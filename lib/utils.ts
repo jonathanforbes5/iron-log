@@ -242,7 +242,8 @@ export function getStreak(logs: WorkoutLog[]): number {
 // ── Weekly sets per muscle group ─────────────────────────────────────────────
 export function weeklyMuscleVolume(logs: WorkoutLog[]): Record<string, number> {
   const weekStart = new Date();
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const dow = weekStart.getDay();
+  weekStart.setDate(weekStart.getDate() - (dow === 0 ? 6 : dow - 1)); // anchor to Monday
   const weekStartStr = weekStart.toISOString().slice(0, 10);
   const result: Record<string, number> = {};
   for (const log of logs.filter(l => l.date >= weekStartStr)) {
