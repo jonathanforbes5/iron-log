@@ -60,6 +60,191 @@ export function getSuggestedWeightRange(
   return { low, high };
 }
 
+// ── Accessory suggestion engine ───────────────────────────────────────────────
+
+export interface AccessorySuggestion {
+  weight: number;
+  basis: 'history' | 'ratio';
+  reason: string;       // shown to the user
+  direction: '↑' | '→' | '↓' | null;
+  isDumbbell: boolean;  // "per DB" label
+}
+
+// Evidence-based strength ratios: accessory → { related main lift, ratio, isDumbbell }
+// Ratios represent % of the base lift's 1RM that a typical intermediate lifter uses.
+const STRENGTH_RATIOS: Record<string, { base: string; ratio: number; isDumbbell?: boolean }> = {
+  // ── Squat family ──────────────────────────────────────────────────────────
+  'front-squat':           { base: 'squat', ratio: 0.80 },
+  'low-bar-squat':         { base: 'squat', ratio: 1.05 },
+  'box-squat':             { base: 'squat', ratio: 0.90 },
+  'hack-squat':            { base: 'squat', ratio: 0.70 },
+  'smith-squat':           { base: 'squat', ratio: 0.75 },
+  'leg-press':             { base: 'squat', ratio: 1.80 },
+  'bulgarian-split-squat': { base: 'squat', ratio: 0.38, isDumbbell: true },
+  'goblet-squat':          { base: 'squat', ratio: 0.18 },
+  'walking-lunges':        { base: 'squat', ratio: 0.30, isDumbbell: true },
+
+  // ── Hinge / deadlift family ───────────────────────────────────────────────
+  'rdl':          { base: 'deadlift', ratio: 0.60 },
+  'stiff-leg-dl': { base: 'deadlift', ratio: 0.55 },
+  'sumo-deadlift':{ base: 'deadlift', ratio: 0.97 },
+  'trap-bar-dl':  { base: 'deadlift', ratio: 0.95 },
+  'rack-pull':    { base: 'deadlift', ratio: 1.10 },
+  'good-morning': { base: 'squat',    ratio: 0.38 },
+  'hip-thrust':   { base: 'squat',    ratio: 0.85 },
+
+  // ── Horizontal push ───────────────────────────────────────────────────────
+  'incline-bench':    { base: 'bench', ratio: 0.85 },
+  'decline-bench':    { base: 'bench', ratio: 1.02 },
+  'close-grip-bench': { base: 'bench', ratio: 0.85 },
+  'floor-press':      { base: 'bench', ratio: 0.90 },
+  'smith-bench':      { base: 'bench', ratio: 0.92 },
+  'machine-press':    { base: 'bench', ratio: 0.80 },
+  'db-bench':         { base: 'bench', ratio: 0.36, isDumbbell: true },
+  'incline-db-bench': { base: 'bench', ratio: 0.32, isDumbbell: true },
+
+  // ── Vertical push ─────────────────────────────────────────────────────────
+  'push-press':    { base: 'ohp', ratio: 1.15 },
+  'db-ohp':        { base: 'ohp', ratio: 0.40, isDumbbell: true },
+  'arnold-press':  { base: 'ohp', ratio: 0.36, isDumbbell: true },
+  'landmine-press':{ base: 'ohp', ratio: 0.45 },
+
+  // ── Horizontal pull ───────────────────────────────────────────────────────
+  'barbell-row':         { base: 'deadlift', ratio: 0.60 },
+  'pendlay-row':         { base: 'deadlift', ratio: 0.55 },
+  't-bar-row':           { base: 'deadlift', ratio: 0.50 },
+  'cable-row':           { base: 'deadlift', ratio: 0.45 },
+  'machine-row':         { base: 'deadlift', ratio: 0.42 },
+  'chest-supported-row': { base: 'deadlift', ratio: 0.42 },
+  'db-row':              { base: 'deadlift', ratio: 0.28, isDumbbell: true },
+
+  // ── Vertical pull ─────────────────────────────────────────────────────────
+  'lat-pulldown':         { base: 'deadlift', ratio: 0.45 },
+  'neutral-pulldown':     { base: 'deadlift', ratio: 0.43 },
+  'straight-arm-pulldown':{ base: 'deadlift', ratio: 0.22 },
+
+  // ── Triceps ───────────────────────────────────────────────────────────────
+  'skull-crusher':        { base: 'bench', ratio: 0.40 },
+  'overhead-tricep-ext':  { base: 'bench', ratio: 0.20, isDumbbell: true },
+  'tricep-pushdown':      { base: 'bench', ratio: 0.18 },
+  'rope-pushdown':        { base: 'bench', ratio: 0.16 },
+  'jm-press':             { base: 'bench', ratio: 0.55 },
+  'dips':                 { base: 'bench', ratio: 0.48 },
+
+  // ── Biceps ────────────────────────────────────────────────────────────────
+  'barbell-curl':   { base: 'bench', ratio: 0.30 },
+  'db-curl':        { base: 'bench', ratio: 0.14, isDumbbell: true },
+  'hammer-curl':    { base: 'bench', ratio: 0.16, isDumbbell: true },
+  'preacher-curl':  { base: 'bench', ratio: 0.28 },
+  'cable-curl':     { base: 'bench', ratio: 0.24 },
+  'incline-db-curl':{ base: 'bench', ratio: 0.12, isDumbbell: true },
+
+  // ── Shoulders (isolation) ─────────────────────────────────────────────────
+  'lateral-raise':       { base: 'ohp', ratio: 0.13, isDumbbell: true },
+  'cable-lateral-raise': { base: 'ohp', ratio: 0.11 },
+  'rear-delt-fly':       { base: 'bench', ratio: 0.07, isDumbbell: true },
+  'face-pulls':          { base: 'bench', ratio: 0.22 },
+  'upright-row':         { base: 'ohp',  ratio: 0.55 },
+  'shrugs':              { base: 'deadlift', ratio: 0.60 },
+
+  // ── Legs (isolation) ─────────────────────────────────────────────────────
+  'leg-extension': { base: 'squat', ratio: 0.30 },
+  'leg-curl':      { base: 'squat', ratio: 0.26 },
+  'calf-raise':    { base: 'squat', ratio: 0.60 },
+  'seated-calf-raise': { base: 'squat', ratio: 0.50 },
+};
+
+// How much to increment weight per session for each exercise category
+function progressionIncrement(exerciseId: string): number {
+  const ex = exerciseId;
+  // Heavy barbell compounds: 5 lbs
+  if (['rdl','stiff-leg-dl','sumo-deadlift','trap-bar-dl','rack-pull','good-morning',
+       'barbell-row','pendlay-row','t-bar-row','incline-bench','decline-bench',
+       'close-grip-bench','floor-press','hip-thrust','jm-press'].includes(ex)) return 5;
+  // Light isolation / cables / DBs: 2.5 lbs
+  return 2.5;
+}
+
+// All working sets from the most recent session for an exercise
+function getLastSessionSets(logs: WorkoutLog[], exerciseId: string): SetLog[] {
+  const sorted = [...logs].sort((a, b) => b.date.localeCompare(a.date));
+  for (const log of sorted) {
+    const sets = log.sets.filter(s => s.exerciseId === exerciseId && !s.isWarmup && s.weight > 0 && s.reps > 0);
+    if (sets.length > 0) return sets;
+  }
+  return [];
+}
+
+export function getAccessorySuggestion(
+  exerciseId: string,
+  repsMin: number,
+  repsMax: number,
+  profile: UserProfile | null,
+  logs: WorkoutLog[],
+): AccessorySuggestion | null {
+  // ── Tier 1: history + progressive overload ────────────────────────────────
+  const lastSets = getLastSessionSets(logs, exerciseId);
+  if (lastSets.length > 0) {
+    // Use the most common weight from last session (mode), falling back to heaviest
+    const weightCounts = lastSets.reduce<Record<number, number>>((m, s) => {
+      m[s.weight] = (m[s.weight] ?? 0) + 1; return m;
+    }, {});
+    const topWeight = Object.entries(weightCounts)
+      .sort(([, a], [, b]) => b - a)[0];
+    const workingWeight = topWeight ? parseFloat(topWeight[0]) : lastSets[0].weight;
+
+    // Average reps at that weight
+    const setsAtWeight = lastSets.filter(s => s.weight === workingWeight);
+    const avgReps = setsAtWeight.reduce((s, x) => s + x.reps, 0) / setsAtWeight.length;
+    const inc = progressionIncrement(exerciseId);
+
+    if (avgReps >= repsMax) {
+      const nextWeight = roundToNearest5(workingWeight + inc);
+      return {
+        weight: nextWeight, basis: 'history', isDumbbell: false,
+        direction: '↑',
+        reason: `Last: ${workingWeight} lbs × ${Math.round(avgReps)} reps — ready to progress`,
+      };
+    } else if (avgReps < repsMin) {
+      const nextWeight = Math.max(roundToNearest5(workingWeight - inc), inc);
+      return {
+        weight: nextWeight, basis: 'history', isDumbbell: false,
+        direction: '↓',
+        reason: `Last: ${workingWeight} lbs × ${Math.round(avgReps)} reps — drop weight slightly`,
+      };
+    } else {
+      return {
+        weight: workingWeight, basis: 'history', isDumbbell: false,
+        direction: '→',
+        reason: `Last: ${workingWeight} lbs × ${Math.round(avgReps)} reps — match it`,
+      };
+    }
+  }
+
+  // ── Tier 2: strength ratio from a known 1RM ───────────────────────────────
+  const ratioEntry = STRENGTH_RATIOS[exerciseId];
+  if (ratioEntry && profile) {
+    const baseMax = profile.maxLifts[ratioEntry.base];
+    if (baseMax && baseMax > 0) {
+      // Use midpoint of rep range at RPE 8 as target
+      const midReps = Math.round((repsMin + repsMax) / 2);
+      const rpePct = rpePercent(8, midReps) || 0.75;
+      const raw = baseMax * ratioEntry.ratio * rpePct;
+      const weight = roundToNearest5(raw);
+      const baseLabel: Record<string, string> = { squat: 'squat', bench: 'bench', deadlift: 'deadlift', ohp: 'OHP' };
+      return {
+        weight,
+        basis: 'ratio',
+        isDumbbell: ratioEntry.isDumbbell ?? false,
+        direction: null,
+        reason: `~${Math.round(ratioEntry.ratio * 100)}% of your ${baseLabel[ratioEntry.base] ?? ratioEntry.base}${ratioEntry.isDumbbell ? ' (per DB)' : ''}`,
+      };
+    }
+  }
+
+  return null;
+}
+
 // ── Progress helpers ─────────────────────────────────────────────────────────
 export function bestE1RMForExercise(sets: SetLog[], exerciseId: string): number {
   return sets

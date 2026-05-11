@@ -6,7 +6,7 @@ import { ActiveWorkout, ProgramExercise, SetLog, CardioLog, WorkoutLog } from '@
 import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES } from '@/lib/exercises';
 import {
   calcE1RM, getLastPerformance, getPreviousBest, uid, rpeColor, formatDuration,
-  getSuggestedWeightRange, totalVolume, workingSetCount, calcPlates, getWarmupRamp,
+  getSuggestedWeightRange, getAccessorySuggestion, totalVolume, workingSetCount, calcPlates, getWarmupRamp,
 } from '@/lib/utils';
 import { getAdvancedCoachingAnalysis } from '@/lib/ai';
 import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap, Eye, MessageSquare } from 'lucide-react';
@@ -503,6 +503,13 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   const plates = calcPlates(wNum);
   const warmupSteps = getWarmupRamp(wNum);
 
+  // Smart suggestion: only show when the exercise doesn't have a 1RM-based target
+  // (main lifts get RPE targets; accessories/isolation get this smarter guide)
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const accessorySuggestion = !suggestedWeight && !suggestionDismissed && workingSets.length === 0
+    ? getAccessorySuggestion(exerciseId, planned?.repsMin ?? 6, planned?.repsMax ?? 12, null, logs)
+    : null;
+
   function stepWeight(delta: number) {
     setWeight(v => {
       const next = (parseFloat(v) || 0) + delta;
@@ -656,7 +663,41 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
 
       {!collapsed && (
         <>
-          {/* Context row: suggested weight + last + load last button */}
+          {/* Smart suggestion chip (accessories / isolation) */}
+          {accessorySuggestion && (
+            <div className="mx-4 mb-2 bg-blue-500/8 border border-blue-500/20 rounded-xl px-3 py-2.5 flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Suggested</span>
+                  {accessorySuggestion.direction && (
+                    <span className={`text-xs font-black ${accessorySuggestion.direction === '↑' ? 'text-green-400' : accessorySuggestion.direction === '↓' ? 'text-red-400' : 'text-zinc-400'}`}>
+                      {accessorySuggestion.direction}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm font-black text-white">
+                  {accessorySuggestion.weight} lbs{accessorySuggestion.isDumbbell ? ' each' : ''}
+                  <span className="text-zinc-500 font-normal text-xs ml-1.5">
+                    × {planned?.repsMin ?? 8}–{planned?.repsMax ?? 12}
+                  </span>
+                </p>
+                <p className="text-[10px] text-zinc-500 mt-0.5 truncate">{accessorySuggestion.reason}</p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <button
+                  onClick={() => { setWeight(String(accessorySuggestion.weight)); setReps(String(planned?.repsMin ?? 8)); setSuggestionDismissed(true); }}
+                  className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors active:scale-95"
+                >
+                  Use
+                </button>
+                <button onClick={() => setSuggestionDismissed(true)} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Context row: RPE target (main lifts) + last perf + load last */}
           <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
             {suggestedWeight && (
               <span className="text-xs text-orange-400 font-semibold">
