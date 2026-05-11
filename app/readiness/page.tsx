@@ -146,10 +146,13 @@ export default function ReadinessPage() {
               </span>
             )}
           </button>
+          {/* Measurements tab hidden for now — UI disabled, code intact */}
+          {false && (
           <button onClick={() => setTab('measurements')}
             className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-colors ${tab === 'measurements' ? 'bg-orange-500 text-white' : 'text-zinc-500'}`}>
             <Ruler size={12} /> Measure
           </button>
+          )}
         </div>
       </div>
 

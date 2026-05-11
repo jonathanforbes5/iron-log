@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useActiveProgram, useLogs, useReadiness, useMesocycle, useProfile, useCardio, useAICoach, useSync, useWeightLog, useSupplements, useRestDays, useDailyNotes, useProgressPhotos, useHydration } from '@/lib/store';
+import { useActiveProgram, useLogs, useReadiness, useMesocycle, useProfile, useCardio, useAICoach, useSync, useWeightLog, useSupplements, useRestDays, useDailyNotes, useProgressPhotos } from '@/lib/store';
 import {
   formatDate, formatDateShort, getPreviousBest, todayISO, totalVolume,
   workingSetCount, getMesocyclePhase, getPhaseColor, getPhaseLabel, getPeakDate,
@@ -11,7 +11,7 @@ import { getExerciseName } from '@/lib/exercises';
 import { SUPPLEMENT_STACK, CORE_SUPPLEMENTS, TOTAL_CORE } from '@/lib/supplements';
 import { AIAction } from '@/lib/types';
 import { getDailyTip } from '@/lib/ai';
-import { Dumbbell, Trophy, ChevronRight, Zap, Moon, Activity, TrendingUp, Settings, Cloud, CloudOff, Loader2, Brain, CheckCircle2, X, AlertCircle, Scale, Check, BedDouble, NotebookPen, Pill, Camera, Droplets } from 'lucide-react';
+import { Dumbbell, Trophy, ChevronRight, Zap, Moon, Activity, TrendingUp, Settings, Cloud, CloudOff, Loader2, Brain, CheckCircle2, X, AlertCircle, Scale, Check, BedDouble, NotebookPen, Pill, Camera } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 export default function Dashboard() {
@@ -28,7 +28,6 @@ export default function Dashboard() {
   const { restDays, toggle: toggleRestDay } = useRestDays();
   const { dailyNotes, setNote: setDailyNote } = useDailyNotes();
   const { progressPhotos } = useProgressPhotos();
-  const { hydrationLogs, logHydration } = useHydration();
 
   const today = todayISO();
   const streak = getStreak(logs);
@@ -55,10 +54,6 @@ export default function Dashboard() {
   const todaySupLog = supplementLogs.find(l => l.date === today);
   const coreTaken = CORE_SUPPLEMENTS.filter(id => todaySupLog?.taken.includes(id)).length;
 
-  // Hydration today
-  const todayGlasses = hydrationLogs[today] ?? 0;
-  const HYDRATION_GOAL = 8;
-
   // Daily checklist
   const isRestDay = restDays.includes(today);
   const todayWorkout = logs.find(l => l.date === today);
@@ -70,7 +65,6 @@ export default function Dashboard() {
     { label: 'Morning check-in', done: !!todayLog, href: '/readiness', icon: <Moon size={13} /> },
     { label: `Supplements ${coreTaken}/${TOTAL_CORE}`, done: coreTaken >= TOTAL_CORE, href: '/readiness', icon: <Pill size={13} /> },
     { label: activityDone ? (isRestDay ? 'Rest day logged' : 'Workout done') : 'Log activity / rest day', done: activityDone, href: '/workout', icon: <Dumbbell size={13} /> },
-    { label: `Hydration ${todayGlasses}/${HYDRATION_GOAL} glasses`, done: todayGlasses >= HYDRATION_GOAL, href: undefined, icon: <Droplets size={13} /> },
   ];
   const checklistDone = checklistItems.filter(i => i.done).length;
 
@@ -141,11 +135,8 @@ export default function Dashboard() {
         doneCount={checklistDone}
         isRestDay={isRestDay}
         todayWeight={todayWeight}
-        todayGlasses={todayGlasses}
-        hydrationGoal={HYDRATION_GOAL}
         onToggleRestDay={() => toggleRestDay(today)}
         onLogWeight={(w) => logWeight({ date: today, weight: w })}
-        onSetGlasses={(n) => logHydration(today, n)}
         dailyNote={dailyNotes[today] ?? ''}
         onSaveNote={note => setDailyNote(today, note)}
         dailyTip={dailyTip}
@@ -370,16 +361,13 @@ export default function Dashboard() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Daily Checklist + Journal
 // ─────────────────────────────────────────────────────────────────────────────
-function DailyChecklist({ items, doneCount, isRestDay, todayWeight, todayGlasses, hydrationGoal, onToggleRestDay, onLogWeight, onSetGlasses, dailyNote, onSaveNote, dailyTip, tipLoading }: {
+function DailyChecklist({ items, doneCount, isRestDay, todayWeight, onToggleRestDay, onLogWeight, dailyNote, onSaveNote, dailyTip, tipLoading }: {
   items: { label: string; done: boolean; href?: string; icon: React.ReactNode }[];
   doneCount: number;
   isRestDay: boolean;
   todayWeight: number | null;
-  todayGlasses: number;
-  hydrationGoal: number;
   onToggleRestDay: () => void;
   onLogWeight: (w: number) => void;
-  onSetGlasses: (n: number) => void;
   dailyNote: string;
   onSaveNote: (note: string) => void;
   dailyTip: string;
@@ -436,43 +424,6 @@ function DailyChecklist({ items, doneCount, isRestDay, todayWeight, todayGlasses
       {/* Checklist items */}
       <div className="divide-y divide-zinc-800/50">
         {items.map((item, i) => {
-          // Hydration item (last) — inline +/- counter
-          if (i === items.length - 1) {
-            return (
-              <div key={i} className="px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${item.done ? 'border-green-500 bg-green-500/20' : 'border-zinc-700'}`}>
-                    {item.done && <Check size={11} className="text-green-400" />}
-                  </div>
-                  <span className={`flex items-center gap-1.5 text-sm flex-1 ${item.done ? 'text-zinc-400' : 'text-zinc-200'}`}>
-                    <span className={item.done ? 'text-green-500/60' : 'text-blue-400'}>{item.icon}</span>
-                    {item.label}
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => onSetGlasses(Math.max(0, todayGlasses - 1))}
-                      className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 font-bold transition-colors"
-                    >−</button>
-                    <button
-                      onClick={() => onSetGlasses(Math.min(hydrationGoal + 4, todayGlasses + 1))}
-                      className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 font-bold transition-colors"
-                    >+</button>
-                  </div>
-                </div>
-                {/* Water fill bar */}
-                <div className="flex gap-1 mt-2 ml-8">
-                  {Array.from({ length: hydrationGoal }, (_, gi) => (
-                    <button
-                      key={gi}
-                      onClick={() => onSetGlasses(gi < todayGlasses ? gi : gi + 1)}
-                      className={`flex-1 h-1.5 rounded-full transition-colors ${gi < todayGlasses ? 'bg-blue-400' : 'bg-zinc-800'}`}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          }
-
           const content = (
             <div className="flex items-center gap-3 px-4 py-3">
               <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${item.done ? 'border-green-500 bg-green-500/20' : 'border-zinc-700'}`}>
