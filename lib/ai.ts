@@ -1,4 +1,4 @@
-import { UserProfile, ReadinessCheckin, WeeklyReview, WorkoutLog, ProgramDay, Program, AIAction } from './types';
+import { UserProfile, ReadinessCheckin, WeeklyReview, WorkoutLog, ProgramDay, Program, AIAction, SetLog } from './types';
 import { uid } from './utils';
 
 // ── API call helper ──────────────────────────────────────────────────────────
@@ -18,6 +18,64 @@ async function callAI(
   if (!res.ok) throw new Error(await res.text() || 'AI request failed');
   const data = await res.json() as { text: string };
   return data.text;
+}
+
+// ── Week-over-week helper ─────────────────────────────────────────────────────
+
+function isoWeekMonday(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00');
+  const dow = d.getDay(); // 0=Sun
+  d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+  return d.toISOString().slice(0, 10);
+}
+
+function buildWoWData(logs: WorkoutLog[]): string {
+  const byWeek = new Map<string, WorkoutLog[]>();
+  for (const log of logs) {
+    const wk = isoWeekMonday(log.date);
+    if (!byWeek.has(wk)) byWeek.set(wk, []);
+    byWeek.get(wk)!.push(log);
+  }
+  const weeks = [...byWeek.keys()].sort().reverse();
+  if (weeks.length < 2) return 'Insufficient history for week-over-week comparison.';
+
+  function weekStats(weekLogs: WorkoutLog[]) {
+    const stats: Record<string, { sets: number; volume: number; topWeight: number }> = {};
+    for (const log of weekLogs) {
+      for (const s of log.sets) {
+        if (s.isWarmup) continue;
+        if (!stats[s.exerciseName]) stats[s.exerciseName] = { sets: 0, volume: 0, topWeight: 0 };
+        stats[s.exerciseName].sets++;
+        stats[s.exerciseName].volume += s.weight * s.reps;
+        stats[s.exerciseName].topWeight = Math.max(stats[s.exerciseName].topWeight, s.weight);
+      }
+    }
+    return stats;
+  }
+
+  const thisStats = weekStats(byWeek.get(weeks[0])!);
+  const lastStats = weekStats(byWeek.get(weeks[1])!);
+  const allEx = new Set([...Object.keys(thisStats), ...Object.keys(lastStats)]);
+  const lines: string[] = [`WoW (week of ${weeks[0]} vs ${weeks[1]}):`];
+  for (const ex of allEx) {
+    const t = thisStats[ex], l = lastStats[ex];
+    if (!t || !l) continue;
+    const wd = t.topWeight - l.topWeight;
+    const vp = l.volume > 0 ? ((t.volume - l.volume) / l.volume * 100).toFixed(0) : '?';
+    lines.push(`  ${ex}: sets ${l.sets}→${t.sets}, top ${l.topWeight}→${t.topWeight} lbs (${wd >= 0 ? '+' : ''}${wd}), vol ${vp}%`);
+  }
+  return lines.join('\n');
+}
+
+function formatNotes(log: WorkoutLog): string {
+  const parts: string[] = [];
+  if (log.notes) parts.push(`Workout note: "${log.notes}"`);
+  if (log.exerciseNotes && Object.keys(log.exerciseNotes).length) {
+    parts.push('Exercise notes: ' + Object.entries(log.exerciseNotes).map(([id, n]) => `${id}: "${n}"`).join('; '));
+  }
+  const setNotes = log.sets.filter((s: SetLog) => s.note).map((s: SetLog) => `${s.exerciseName} set ${s.setNumber}: "${s.note}"`);
+  if (setNotes.length) parts.push('Set notes: ' + setNotes.join('; '));
+  return parts.join('\n') || 'None';
 }
 
 function parseActions(raw: unknown[]): AIAction[] {
@@ -130,11 +188,16 @@ export async function getAdvancedCoachingAnalysis(
   const todayDayInfo = program?.days
     .map(d => ({ id: d.id, name: d.name, exercises: d.exercises.map(e => e.exerciseId) })) ?? [];
 
+  const wowData = buildWoWData([workoutLog, ...recentLogs]);
+  const notesContext = formatNotes(workoutLog);
+
   const prompt = `Athlete: ${profile.name}, ${profile.age}yo, ${profile.weight}lbs, ${profile.experience}, goal: ${profile.goal}
 Current maxes — Squat: ${profile.maxLifts['squat'] ?? '?'}, Bench: ${profile.maxLifts['bench'] ?? '?'}, Deadlift: ${profile.maxLifts['deadlift'] ?? '?'}, OHP: ${profile.maxLifts['ohp'] ?? '?'}
 
 Today's workout (${workoutLog.dayName}, ${workoutLog.durationMinutes ?? '?'}min, rating ${workoutLog.rating ?? '?'}/5):
 ${exerciseSummaries.join('\n')}
+
+${wowData}
 
 Recent lift trends: ${recentTrend.join(', ') || 'insufficient data'}
 Sessions this mesocycle: ${recentLogs.length}
@@ -142,9 +205,9 @@ Sessions this mesocycle: ${recentLogs.length}
 Program days for reference (use exact dayId in actions):
 ${todayDayInfo.map(d => `Day "${d.name}" (id: ${d.id}): ${d.exercises.join(', ')}`).join('\n')}
 
-Notes: "${workoutLog.notes}"
+${notesContext}
 
-Analyze this session. If any e1RM clearly exceeds current max by >5%, suggest ADJUST_MAX_LIFT. Give direct, specific coaching.`;
+Analyze this session with special attention to week-over-week changes. If any e1RM clearly exceeds current max by >5%, suggest ADJUST_MAX_LIFT. Give direct, specific coaching.`;
 
   try {
     const raw = await callAI(apiKey, prompt, COACHING_SYSTEM, 1024, 'claude-sonnet-4-6');
@@ -167,11 +230,14 @@ export async function getWeeklyReviewAnalysis(
   apiKey: string,
 ): Promise<{ analysis: string; actions: AIAction[] }> {
   const totalSets = weekLogs.reduce((t, l) => t + l.sets.filter(s => !s.isWarmup).length, 0);
+  const wowData = buildWoWData(weekLogs);
 
   const prompt = `Weekly review for ${profile.name}:
 Ratings: Overall ${review.overallRating}/5, Strength ${review.strengthFeel}/5, Recovery ${review.recoveryFeel}/5, Motivation ${review.motivation}/5, Joints ${review.jointHealth}/5
 Sessions: ${weekLogs.length}/${profile.daysPerWeek}, Working sets: ${totalSets}
 Notes: "${review.notes}"
+
+${wowData}
 
 Current maxes — Squat: ${profile.maxLifts['squat'] ?? '?'}, Bench: ${profile.maxLifts['bench'] ?? '?'}, Deadlift: ${profile.maxLifts['deadlift'] ?? '?'}, OHP: ${profile.maxLifts['ohp'] ?? '?'}
 
@@ -222,6 +288,25 @@ Maxes — Squat: ${profile.maxLifts['squat'] ?? 'unknown'}, Bench: ${profile.max
 
 Write a personalized program overview: starting phase, initial RPE targets, weak points from lift ratios, motivational note.`;
   return callAI(apiKey, prompt, system);
+}
+
+// ── Daily tip (home screen, called once per day) ─────────────────────────────
+
+export async function getDailyTip(
+  profile: UserProfile,
+  recentLogs: WorkoutLog[],
+  todayCheckin: ReadinessCheckin | null,
+  apiKey: string,
+): Promise<string> {
+  const system = `You are a powerbuilding coach. Give one short, specific coaching tip for today — 1-2 sentences max. No markdown, no greeting, no sign-off.`;
+  const lastWorkout = recentLogs[0];
+  const wowLine = recentLogs.length >= 2 ? buildWoWData(recentLogs.slice(0, 8)).split('\n').slice(0, 3).join('; ') : '';
+  const prompt = `${profile.name}, ${profile.experience}, goal: ${profile.goal}
+Last session: ${lastWorkout ? `${lastWorkout.dayName} on ${lastWorkout.date}` : 'none logged'}
+Readiness today: ${todayCheckin ? `energy ${todayCheckin.overallEnergy}/5, sleep ${todayCheckin.sleepHours}h, stress ${todayCheckin.stress}/5` : 'no check-in yet'}
+${wowLine ? `Recent trend: ${wowLine}` : ''}
+Give one actionable tip for today's training or recovery.`;
+  return callAI(apiKey, prompt, system, 200, 'claude-haiku-4-5-20251001');
 }
 
 // ── Post-workout brief feedback (text only, fast) ────────────────────────────

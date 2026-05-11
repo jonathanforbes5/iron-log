@@ -16,7 +16,7 @@ import Link from 'next/link';
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 export default function WorkoutPage() {
-  const { activeWorkout, startWorkout, logSet, removeSet, updateSet, setExerciseNote, swapExercise, finishWorkout, cancelWorkout } = useWorkout();
+  const { activeWorkout, startWorkout, logSet, removeSet, updateSet, setExerciseNote, swapExercise, toggleSkipExercise, finishWorkout, cancelWorkout } = useWorkout();
   const { program, currentDay } = useActiveProgram();
   const logs = useLogs();
   const { profile } = useProfile();
@@ -29,7 +29,7 @@ export default function WorkoutPage() {
   const [aiLoading, setAiLoading] = useState(false);
 
   function handleStart(dayName: string, plannedExercises: ProgramExercise[]) {
-    startWorkout({ startTime: new Date().toISOString(), programId: program?.id, dayName, plannedExercises, sets: [], swaps: {}, exerciseNotes: {} });
+    startWorkout({ startTime: new Date().toISOString(), programId: program?.id, dayName, plannedExercises, sets: [], swaps: {}, exerciseNotes: {}, skippedExercises: [] });
   }
 
   async function handleFinishWorkout(log: import('@/lib/types').WorkoutLog) {
@@ -104,6 +104,7 @@ export default function WorkoutPage() {
         onUpdateSet={updateSet}
         onSetExerciseNote={setExerciseNote}
         onSwap={swapExercise}
+        onToggleSkip={toggleSkipExercise}
         onFinish={handleFinishWorkout}
         onCancel={cancelWorkout}
       />
@@ -279,7 +280,7 @@ function WorkoutPreview({ program, day, logs, profile, onStart, onClose }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Active Workout
 // ─────────────────────────────────────────────────────────────────────────────
-function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUpdateSet, onSetExerciseNote, onSwap, onFinish, onCancel }: {
+function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUpdateSet, onSetExerciseNote, onSwap, onToggleSkip, onFinish, onCancel }: {
   workout: ActiveWorkout;
   logs: ReturnType<typeof useLogs>;
   profile: ReturnType<typeof useProfile>['profile'];
@@ -288,6 +289,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
   onUpdateSet: (s: SetLog) => void;
   onSetExerciseNote: (exerciseId: string, note: string) => void;
   onSwap: (orig: string, rep: string) => void;
+  onToggleSkip: (exerciseId: string) => void;
   onFinish: (log: import('@/lib/types').WorkoutLog) => void;
   onCancel: () => void;
 }) {
@@ -422,6 +424,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
             : null;
           const alternatives = EXERCISE_ALTERNATIVES[originalId] ?? [];
 
+          const isSkipped = (workout.skippedExercises ?? []).includes(exerciseId);
           return (
             <ExerciseCard
               key={exerciseId}
@@ -435,11 +438,13 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
               alternatives={alternatives}
               logs={logs}
               exerciseNote={workout.exerciseNotes?.[exerciseId] ?? ''}
+              isSkipped={isSkipped}
               onLogSet={handleLogSet}
               onRemoveSet={onRemoveSet}
               onUpdateSet={onUpdateSet}
               onSetExerciseNote={note => onSetExerciseNote(exerciseId, note)}
               onSwap={rep => onSwap(originalId, rep)}
+              onToggleSkip={() => onToggleSkip(exerciseId)}
             />
           );
         })}
@@ -487,6 +492,8 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
               sets: workout.sets, notes,
               exerciseNotes: Object.keys(workout.exerciseNotes ?? {}).length
                 ? workout.exerciseNotes : undefined,
+              skippedExercises: (workout.skippedExercises ?? []).length
+                ? workout.skippedExercises : undefined,
               rating, bodyweight: bw ? parseFloat(bw) : undefined,
               durationMinutes: elapsedMin,
             };
@@ -503,7 +510,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
 // ─────────────────────────────────────────────────────────────────────────────
 // Exercise Card
 // ─────────────────────────────────────────────────────────────────────────────
-function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, allTimeBest, suggestedWeight, alternatives, logs, exerciseNote, onLogSet, onRemoveSet, onUpdateSet, onSetExerciseNote, onSwap }: {
+function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, allTimeBest, suggestedWeight, alternatives, logs, exerciseNote, isSkipped, onLogSet, onRemoveSet, onUpdateSet, onSetExerciseNote, onSwap, onToggleSkip }: {
   exerciseId: string;
   originalId: string;
   planned?: ProgramExercise;
@@ -514,11 +521,13 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   alternatives: string[];
   logs: WorkoutLog[];
   exerciseNote: string;
+  isSkipped: boolean;
   onLogSet: (s: SetLog) => void;
   onRemoveSet: (id: string) => void;
   onUpdateSet: (s: SetLog) => void;
   onSetExerciseNote: (note: string) => void;
   onSwap: (replacementId: string) => void;
+  onToggleSkip: () => void;
 }) {
   const initWeight = lastPerformance?.weight.toString() ?? suggestedWeight?.high.toString() ?? '';
   const [weight, setWeight] = useState(initWeight);
@@ -607,31 +616,40 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   }
 
   return (
-    <div className={`bg-zinc-900 border rounded-2xl overflow-hidden transition-colors ${workingSets.length >= targetSets ? 'border-green-500/30' : 'border-zinc-800'}`}>
+    <div className={`bg-zinc-900 border rounded-2xl overflow-hidden transition-colors ${isSkipped ? 'border-zinc-700 opacity-60' : workingSets.length >= targetSets ? 'border-green-500/30' : 'border-zinc-800'}`}>
       {/* Header */}
       <div className="flex items-center gap-2 px-4 pt-3 pb-2">
         <button onClick={() => setCollapsed(c => !c)} className="flex-1 flex items-center gap-3 text-left">
           <div className="flex-1">
-            <h3 className="font-black">{getExerciseName(exerciseId)}</h3>
-            {planned && (
+            <h3 className={`font-black ${isSkipped ? 'line-through text-zinc-500' : ''}`}>{getExerciseName(exerciseId)}</h3>
+            {isSkipped ? (
+              <p className="text-[10px] text-zinc-600 italic">Skipped</p>
+            ) : planned ? (
               <p className="text-xs text-zinc-500">
                 {planned.sets}×{planned.repsMin}–{planned.repsMax}{planned.rpeTarget ? ` · RPE ${planned.rpeTarget}` : ''}
               </p>
-            )}
-            {exerciseNote && !exNoteOpen && (
+            ) : null}
+            {exerciseNote && !exNoteOpen && !isSkipped && (
               <p className="text-[10px] text-orange-400/80 italic mt-0.5 truncate">{exerciseNote}</p>
             )}
           </div>
           <div className="relative w-9 h-9 flex-shrink-0">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
               <circle cx="18" cy="18" r="14" fill="none" stroke="#27272a" strokeWidth="3" />
-              <circle cx="18" cy="18" r="14" fill="none" stroke={progress >= 1 ? '#22c55e' : '#f97316'} strokeWidth="3"
-                strokeDasharray={`${progress * 88} 88`} strokeLinecap="round" />
+              <circle cx="18" cy="18" r="14" fill="none" stroke={isSkipped ? '#71717a' : progress >= 1 ? '#22c55e' : '#f97316'} strokeWidth="3"
+                strokeDasharray={`${(isSkipped ? 1 : progress) * 88} 88`} strokeLinecap="round" />
             </svg>
             <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold">
-              {workingSets.length}/{targetSets}
+              {isSkipped ? '—' : `${workingSets.length}/${targetSets}`}
             </span>
           </div>
+        </button>
+        <button
+          onClick={onToggleSkip}
+          className={`p-1 transition-colors text-xs font-bold rounded-lg border px-2 py-1 ${isSkipped ? 'border-zinc-600 text-zinc-400 bg-zinc-800' : 'border-zinc-700 text-zinc-600 hover:border-red-500/40 hover:text-red-400'}`}
+          title={isSkipped ? 'Un-skip' : 'Skip this exercise'}
+        >
+          {isSkipped ? 'Undo' : 'Skip'}
         </button>
         <button
           onClick={() => { setExNoteOpen(o => !o); setExNoteDraft(exerciseNote); }}
@@ -750,7 +768,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
         </div>
       )}
 
-      {!collapsed && (
+      {!collapsed && !isSkipped && (
         <>
           {/* Smart suggestion chip (accessories / isolation) */}
           {accessorySuggestion && (
@@ -1210,6 +1228,7 @@ function FinishModal({ workout, elapsed, initialNotes, onConfirm, onCancel, onAb
 
   const workingSets = workout.sets.filter(s => !s.isWarmup);
   const exercises = Array.from(new Set(workout.sets.map(s => s.exerciseId)));
+  const skipped = workout.skippedExercises ?? [];
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-end">
@@ -1234,6 +1253,16 @@ function FinishModal({ workout, elapsed, initialNotes, onConfirm, onCancel, onAb
               </div>
             ))}
           </div>
+          {skipped.length > 0 && (
+            <div className="bg-zinc-800/60 border border-zinc-700 rounded-xl px-4 py-3">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Skipped ({skipped.length})</p>
+              <div className="flex flex-wrap gap-1.5">
+                {skipped.map(id => (
+                  <span key={id} className="text-xs bg-zinc-700 text-zinc-400 px-2 py-1 rounded-lg line-through">{getExerciseName(id)}</span>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Session Rating</p>

@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useWeeklyReview, useLogs, useProfile, useMesocycle, useAICoach } from '@/lib/store';
+import { useWeeklyReview, useLogs, useProfile, useMesocycle, useAICoach, useReadiness, useCardio } from '@/lib/store';
 import { WeeklyReview } from '@/lib/types';
-import { uid, totalVolume, workingSetCount, formatDate } from '@/lib/utils';
+import { uid, totalVolume, workingSetCount, formatDate, todayISO } from '@/lib/utils';
 import { getWeeklyReviewAnalysis } from '@/lib/ai';
-import { ChevronLeft, BarChart3, Loader2, CheckCircle2, TrendingUp, Brain } from 'lucide-react';
+import { getExerciseName } from '@/lib/exercises';
+import { ChevronLeft, BarChart3, Loader2, CheckCircle2, TrendingUp, Brain, Calendar, Dumbbell, Activity } from 'lucide-react';
 
 const QUESTIONS: { key: keyof Pick<WeeklyReview,'overallRating'|'strengthFeel'|'recoveryFeel'|'motivation'|'jointHealth'>; label: string; desc: string }[] = [
   { key: 'overallRating',  label: 'Overall Week',   desc: 'How did this week go overall?' },
@@ -16,7 +17,33 @@ const QUESTIONS: { key: keyof Pick<WeeklyReview,'overallRating'|'strengthFeel'|'
   { key: 'jointHealth',    label: 'Joint Health',    desc: 'How do your joints, tendons, and connective tissue feel?' },
 ];
 
-export default function WeeklyReviewPage() {
+export default function ReviewPage() {
+  const [tab, setTab] = useState<'weekly' | 'monthly'>('weekly');
+
+  return (
+    <div className="px-4 pt-6 pb-8 space-y-4">
+      {/* Tab switcher */}
+      <div className="flex gap-2 bg-zinc-900 border border-zinc-800 rounded-2xl p-1.5">
+        {(['weekly', 'monthly'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold capitalize transition-colors ${tab === t ? 'bg-orange-500 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'weekly' ? <WeeklyReviewContent /> : <MonthlyReviewContent />}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Weekly Review
+// ─────────────────────────────────────────────────────────────────────────────
+function WeeklyReviewContent() {
   const router = useRouter();
   const { weeklyReviews, addReview } = useWeeklyReview();
   const logs = useLogs();
@@ -33,7 +60,6 @@ export default function WeeklyReviewPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // This week's logs
   const weekStart = new Date();
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
   const weekStartStr = weekStart.toISOString().slice(0, 10);
@@ -73,14 +99,13 @@ export default function WeeklyReviewPage() {
     }
 
     addReview(review);
-    // Advance mesocycle week
     updateMesocycle({ currentWeek: Math.min(mesocycle.currentWeek + 1, mesocycle.totalWeeks) });
     setSaved(true);
   }
 
   if (saved) {
     return (
-      <div className="px-4 pt-6 space-y-5">
+      <div className="space-y-5">
         <h1 className="text-2xl font-black">Week {mesocycle.currentWeek - 1} Complete</h1>
         <div className="bg-zinc-900 border border-green-500/30 rounded-2xl p-5 text-center space-y-2">
           <CheckCircle2 size={32} className="text-green-400 mx-auto" />
@@ -112,11 +137,13 @@ export default function WeeklyReviewPage() {
 
   if (currentReview) {
     return (
-      <div className="px-4 pt-6 space-y-5">
-        <button onClick={() => router.back()} className="flex items-center gap-1.5 text-zinc-500 text-sm">
-          <ChevronLeft size={16} /> Back
-        </button>
-        <h1 className="text-2xl font-black">Week {mesocycle.currentWeek} Review</h1>
+      <div className="space-y-5">
+        <div className="flex items-center gap-3">
+          <button onClick={() => router.back()} className="flex items-center gap-1.5 text-zinc-500 text-sm">
+            <ChevronLeft size={16} /> Back
+          </button>
+          <h1 className="text-xl font-black">Week {mesocycle.currentWeek} Review</h1>
+        </div>
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
           <p className="text-sm text-zinc-500 mb-3">Completed on {formatDate(currentReview.date)}</p>
           <div className="grid grid-cols-2 gap-2 text-xs">
@@ -139,7 +166,7 @@ export default function WeeklyReviewPage() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-8 space-y-5">
+    <div className="space-y-5">
       <div className="flex items-center gap-3">
         <button onClick={() => router.back()} className="text-zinc-500 hover:text-white transition-colors">
           <ChevronLeft size={20} />
@@ -150,7 +177,6 @@ export default function WeeklyReviewPage() {
         </div>
       </div>
 
-      {/* Week Stats */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-3">
           <BarChart3 size={15} className="text-orange-400" />
@@ -170,7 +196,6 @@ export default function WeeklyReviewPage() {
         </div>
       </div>
 
-      {/* Rating Questions */}
       <div className="space-y-4">
         {QUESTIONS.map(({ key, label, desc }) => (
           <div key={key} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
@@ -191,7 +216,6 @@ export default function WeeklyReviewPage() {
         ))}
       </div>
 
-      {/* Sessions hit */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
         <p className="text-sm font-bold mb-3">Did you hit all planned sessions?</p>
         <div className="flex gap-2">
@@ -204,7 +228,6 @@ export default function WeeklyReviewPage() {
         </div>
       </div>
 
-      {/* Notes */}
       <div className="space-y-2">
         <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Notes / Comments</label>
         <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
@@ -223,6 +246,193 @@ export default function WeeklyReviewPage() {
         className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-2xl transition-colors text-lg">
         Complete Week Review
       </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Monthly Review
+// ─────────────────────────────────────────────────────────────────────────────
+function MonthlyReviewContent() {
+  const logs = useLogs();
+  const { profile } = useProfile();
+  const { readinessLogs } = useReadiness();
+  const { cardioLogs } = useCardio();
+  const today = todayISO();
+
+  // Build list of available months from logs (most recent first)
+  const monthSet = new Set<string>();
+  for (const l of logs) monthSet.add(l.date.slice(0, 7));
+  // Always include current month
+  monthSet.add(today.slice(0, 7));
+  const months = [...monthSet].sort().reverse();
+
+  const [selectedMonth, setSelectedMonth] = useState(months[0] ?? today.slice(0, 7));
+
+  // Stats for selected month
+  const monthLogs = logs.filter(l => l.date.startsWith(selectedMonth));
+  const monthCardio = cardioLogs.filter(l => l.date.startsWith(selectedMonth));
+  const monthReadiness = readinessLogs.filter(l => l.date.startsWith(selectedMonth));
+
+  const totalSets = monthLogs.reduce((t, l) => t + workingSetCount(l.sets), 0);
+  const totalVol = monthLogs.reduce((t, l) => t + totalVolume(l.sets), 0);
+  const avgDuration = monthLogs.length
+    ? Math.round(monthLogs.reduce((t, l) => t + (l.durationMinutes ?? 0), 0) / monthLogs.length)
+    : 0;
+
+  // Top lifts this month
+  const exerciseTops: Record<string, { weight: number; reps: number; date: string }> = {};
+  for (const log of monthLogs) {
+    for (const set of log.sets) {
+      if (set.isWarmup) continue;
+      const cur = exerciseTops[set.exerciseName];
+      if (!cur || set.weight > cur.weight) {
+        exerciseTops[set.exerciseName] = { weight: set.weight, reps: set.reps, date: log.date };
+      }
+    }
+  }
+  const topExercises = Object.entries(exerciseTops)
+    .sort((a, b) => b[1].weight - a[1].weight)
+    .slice(0, 6);
+
+  // Avg readiness scores
+  const avgEnergy = monthReadiness.length
+    ? (monthReadiness.reduce((s, r) => s + r.overallEnergy, 0) / monthReadiness.length).toFixed(1)
+    : null;
+  const avgSleep = monthReadiness.length
+    ? (monthReadiness.reduce((s, r) => s + r.sleepHours, 0) / monthReadiness.length).toFixed(1)
+    : null;
+
+  const monthLabel = new Date(selectedMonth + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-2">
+        <Calendar size={16} className="text-orange-400" />
+        <h2 className="text-xl font-black">{monthLabel}</h2>
+      </div>
+
+      {/* Month selector */}
+      {months.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {months.slice(0, 6).map(m => {
+            const lbl = new Date(m + '-15').toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+            return (
+              <button key={m} onClick={() => setSelectedMonth(m)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${selectedMonth === m ? 'bg-orange-500 border-orange-500 text-white' : 'bg-zinc-900 border-zinc-700 text-zinc-500'}`}>
+                {lbl}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Key stats */}
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { label: 'Workouts', value: monthLogs.length, icon: <Dumbbell size={14} className="text-orange-400" /> },
+          { label: 'Cardio Sessions', value: monthCardio.length, icon: <Activity size={14} className="text-blue-400" /> },
+          { label: 'Working Sets', value: totalSets, icon: <BarChart3 size={14} className="text-zinc-400" /> },
+          { label: 'Avg Session', value: avgDuration ? `${avgDuration}m` : '—', icon: <TrendingUp size={14} className="text-green-400" /> },
+        ].map(({ label, value, icon }) => (
+          <div key={label} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-1">{icon}<span className="text-xs text-zinc-500">{label}</span></div>
+            <p className="text-2xl font-black">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {totalVol > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-xs text-zinc-500 mb-1">Total Volume</p>
+          <p className="text-2xl font-black">{(totalVol / 1000).toFixed(1)}k <span className="text-sm text-zinc-500 font-normal">lbs</span></p>
+        </div>
+      )}
+
+      {/* Top lifts */}
+      {topExercises.length > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">Top Sets This Month</p>
+          <div className="space-y-2">
+            {topExercises.map(([name, { weight, reps, date }]) => (
+              <div key={name} className="flex items-center justify-between py-1.5 border-b border-zinc-800/60 last:border-0">
+                <div>
+                  <p className="text-sm font-semibold">{name}</p>
+                  <p className="text-[10px] text-zinc-600">{formatDate(date)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-black">{weight} <span className="text-zinc-500 font-normal text-xs">lbs</span></p>
+                  <p className="text-[10px] text-zinc-500">× {reps}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Readiness avg */}
+      {(avgEnergy || avgSleep) && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">Avg Readiness ({monthReadiness.length} check-ins)</p>
+          <div className="grid grid-cols-2 gap-3">
+            {avgEnergy && (
+              <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                <p className="text-xl font-black">{avgEnergy}<span className="text-sm text-zinc-500">/5</span></p>
+                <p className="text-[10px] text-zinc-500">Energy</p>
+              </div>
+            )}
+            {avgSleep && (
+              <div className="bg-zinc-800 rounded-xl p-3 text-center">
+                <p className="text-xl font-black">{avgSleep}<span className="text-sm text-zinc-500">h</span></p>
+                <p className="text-[10px] text-zinc-500">Sleep</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recent workouts list */}
+      {monthLogs.length > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+          <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider px-4 py-3 border-b border-zinc-800">
+            Workouts This Month
+          </p>
+          <div className="divide-y divide-zinc-800/50">
+            {monthLogs.map(log => {
+              const working = log.sets.filter(s => !s.isWarmup);
+              const skipped = log.skippedExercises ?? [];
+              return (
+                <div key={log.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold truncate">{log.dayName}</p>
+                      <p className="text-xs text-zinc-600">{formatDate(log.date)} · {log.durationMinutes ?? 0}min</p>
+                      {log.notes && <p className="text-xs text-zinc-500 italic mt-0.5 truncate">{log.notes}</p>}
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-black">{working.length} <span className="text-zinc-500 font-normal text-xs">sets</span></p>
+                      {log.rating && <p className="text-[10px] text-orange-400">{'★'.repeat(log.rating)}</p>}
+                    </div>
+                  </div>
+                  {skipped.length > 0 && (
+                    <div className="flex gap-1 flex-wrap mt-1.5">
+                      {skipped.map(id => (
+                        <span key={id} className="text-[9px] bg-zinc-800 text-zinc-600 px-1.5 py-0.5 rounded line-through">{getExerciseName(id)}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {monthLogs.length === 0 && monthCardio.length === 0 && (
+        <div className="text-center py-8 text-zinc-600">
+          <p className="text-sm">No activity logged in {monthLabel}</p>
+        </div>
+      )}
     </div>
   );
 }

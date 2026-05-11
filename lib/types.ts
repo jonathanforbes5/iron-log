@@ -75,6 +75,7 @@ export interface WorkoutLog {
   sets: SetLog[];
   notes: string;
   exerciseNotes?: Record<string, string>; // exerciseId → note for that exercise
+  skippedExercises?: string[];            // exerciseIds intentionally skipped
   rating?: 1 | 2 | 3 | 4 | 5;
   bodyweight?: number;
   durationMinutes?: number;
@@ -88,6 +89,7 @@ export interface ActiveWorkout {
   sets: SetLog[];
   swaps: Record<string, string>; // originalId → swappedId
   exerciseNotes: Record<string, string>; // exerciseId → note
+  skippedExercises: string[]; // exerciseIds skipped this session
 }
 
 export interface MuscleReadinessMap {
@@ -194,6 +196,8 @@ export interface AppState {
   supplementLogs: DailySupplementLog[];
   weightLogs: WeightLog[];
   pendingAIActions: AIAction[];
+  restDays: string[];                       // YYYY-MM-DD dates marked as rest days
+  dailyNotes: Record<string, string>;       // date → free-text journal note
   updatedAt: string; // ISO timestamp for cross-device sync conflict resolution
 }
 
@@ -222,4 +226,7 @@ export type AppAction =
   | { type: 'ADD_AI_ACTIONS'; actions: AIAction[] }
   | { type: 'APPLY_AI_ACTION'; actionId: string }
   | { type: 'DISMISS_AI_ACTION'; actionId: string }
+  | { type: 'TOGGLE_SKIP_EXERCISE'; exerciseId: string }
+  | { type: 'MARK_REST_DAY'; date: string }
+  | { type: 'SET_DAILY_NOTE'; date: string; note: string }
   | { type: 'LOAD_STATE'; state: AppState };

@@ -1,16 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { useActiveProgram, useLogs, useReadiness, useMesocycle, useProfile, useCardio, useAICoach, useSync, useWeightLog } from '@/lib/store';
+import { useActiveProgram, useLogs, useReadiness, useMesocycle, useProfile, useCardio, useAICoach, useSync, useWeightLog, useSupplements, useRestDays, useDailyNotes } from '@/lib/store';
 import {
   formatDate, formatDateShort, getPreviousBest, todayISO, totalVolume,
   workingSetCount, getMesocyclePhase, getPhaseColor, getPhaseLabel, getPeakDate,
   overallReadinessScore, getStreak,
 } from '@/lib/utils';
 import { getExerciseName } from '@/lib/exercises';
+import { SUPPLEMENT_STACK, CORE_SUPPLEMENTS, TOTAL_CORE } from '@/lib/supplements';
 import { AIAction } from '@/lib/types';
-import { Dumbbell, Trophy, ChevronRight, Zap, Moon, Activity, TrendingUp, Settings, Cloud, CloudOff, RefreshCw, Brain, CheckCircle2, X, AlertCircle, Loader2, Scale } from 'lucide-react';
-import { useState } from 'react';
+import { getDailyTip } from '@/lib/ai';
+import { Dumbbell, Trophy, ChevronRight, Zap, Moon, Activity, TrendingUp, Settings, Cloud, CloudOff, Loader2, Brain, CheckCircle2, X, AlertCircle, Scale, Check, BedDouble, NotebookPen, Pill } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 export default function Dashboard() {
   const { program, currentDay, currentDayIndex } = useActiveProgram();
@@ -22,6 +24,9 @@ export default function Dashboard() {
   const { pendingAIActions, applyAction, dismiss } = useAICoach();
   const { syncing, syncError } = useSync();
   const { weightLogs, todayWeight, logWeight } = useWeightLog();
+  const { supplementLogs } = useSupplements();
+  const { restDays, toggle: toggleRestDay } = useRestDays();
+  const { dailyNotes, setNote: setDailyNote } = useDailyNotes();
 
   const today = todayISO();
   const streak = getStreak(logs);
@@ -31,22 +36,52 @@ export default function Dashboard() {
   const peakDate = getPeakDate(mesocycle.startDate, mesocycle.totalWeeks - 1);
   const daysUntilPeak = Math.max(0, Math.round((peakDate.getTime() - Date.now()) / 86400000));
 
-  // All calendar days (current mesocycle = weeks × 7 days)
   const logDates = new Set(logs.map(l => l.date));
   const cardioDateSet = new Set(cardioLogs.map(c => c.date));
 
-  // Readiness score
   const readinessScore = todayLog ? overallReadinessScore(todayLog) : null;
 
-  // Recent PRs
   const MAIN_LIFTS = ['squat', 'bench', 'deadlift', 'ohp'];
   const prs = MAIN_LIFTS.map(id => ({
     id, name: getExerciseName(id), pr: getPreviousBest(logs, id),
   })).filter(x => x.pr !== null);
 
-  // Last workout
   const lastLog = logs[0] ?? null;
   const lastCardio = cardioLogs[0] ?? null;
+
+  // Supplement progress today
+  const todaySupLog = supplementLogs.find(l => l.date === today);
+  const coreTaken = CORE_SUPPLEMENTS.filter(id => todaySupLog?.taken.includes(id)).length;
+
+  // Daily checklist
+  const isRestDay = restDays.includes(today);
+  const todayWorkout = logs.find(l => l.date === today);
+  const todayCardio = cardioLogs.find(l => l.date === today);
+  const activityDone = !!todayWorkout || !!todayCardio || isRestDay;
+
+  const checklistItems = [
+    { label: 'Weight logged', done: !!todayWeight, href: undefined, icon: <Scale size={13} /> },
+    { label: 'Morning check-in', done: !!todayLog, href: '/readiness', icon: <Moon size={13} /> },
+    { label: `Supplements ${coreTaken}/${TOTAL_CORE}`, done: coreTaken >= TOTAL_CORE, href: '/readiness', icon: <Pill size={13} /> },
+    { label: activityDone ? (isRestDay ? 'Rest day logged' : 'Workout done') : 'Log activity / rest day', done: activityDone, href: '/workout', icon: <Dumbbell size={13} /> },
+  ];
+  const checklistDone = checklistItems.filter(i => i.done).length;
+
+  // Daily AI tip
+  const [dailyTip, setDailyTip] = useState('');
+  const [tipLoading, setTipLoading] = useState(false);
+  const tipKey = `dailytip_${today}`;
+  useEffect(() => {
+    const cached = typeof window !== 'undefined' ? localStorage.getItem(tipKey) : null;
+    if (cached) { setDailyTip(cached); return; }
+    if (!profile?.claudeApiKey || !profile) return;
+    setTipLoading(true);
+    getDailyTip(profile, logs.slice(0, 10), todayLog, profile.claudeApiKey)
+      .then(tip => { setDailyTip(tip); localStorage.setItem(tipKey, tip); })
+      .catch(() => {})
+      .finally(() => setTipLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [today, profile?.claudeApiKey]);
 
   return (
     <div className="px-4 pt-6 pb-4 space-y-5">
@@ -66,7 +101,6 @@ export default function Dashboard() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          {/* Sync indicator */}
           <div title={syncError ? 'Sync unavailable — using local storage' : syncing ? 'Syncing…' : 'All devices in sync'}>
             {syncing ? <Loader2 size={12} className="text-zinc-600 animate-spin" />
               : syncError ? <CloudOff size={12} className="text-zinc-600" />
@@ -84,6 +118,20 @@ export default function Dashboard() {
           </Link>
         </div>
       </div>
+
+      {/* Daily Checklist */}
+      <DailyChecklist
+        items={checklistItems}
+        doneCount={checklistDone}
+        isRestDay={isRestDay}
+        todayWeight={todayWeight}
+        onToggleRestDay={() => toggleRestDay(today)}
+        onLogWeight={(w) => logWeight({ date: today, weight: w })}
+        dailyNote={dailyNotes[today] ?? ''}
+        onSaveNote={note => setDailyNote(today, note)}
+        dailyTip={dailyTip}
+        tipLoading={tipLoading}
+      />
 
       {/* Coach's Corner — pending AI actions */}
       {pendingAIActions.length > 0 && (
@@ -103,7 +151,6 @@ export default function Dashboard() {
               <p className="text-sm font-bold">{phase === 'deload' ? 'Deload week' : daysUntilPeak === 0 ? 'Today!' : `${daysUntilPeak}d away`}</p>
             </div>
           </div>
-          {/* Progress bar */}
           <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all" style={{
               width: `${(mesocycle.currentWeek / mesocycle.totalWeeks) * 100}%`,
@@ -132,7 +179,7 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {/* Weight + Readiness quick-log row */}
+      {/* Weight Widget */}
       <WeightWidget weightLogs={weightLogs} todayWeight={todayWeight} logWeight={logWeight} />
 
       {/* Today's Workout */}
@@ -140,8 +187,11 @@ export default function Dashboard() {
         <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
           <Zap size={14} className="text-orange-500" />
           <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Today's Workout</span>
+          {isRestDay && (
+            <span className="ml-auto text-xs bg-blue-500/10 border border-blue-500/20 text-blue-400 font-bold px-2 py-0.5 rounded-full">Rest Day</span>
+          )}
         </div>
-        {program && currentDay ? (
+        {program && currentDay && !isRestDay ? (
           <div className="p-4">
             <p className="text-xs text-zinc-500 mb-1">{program.name}</p>
             <h2 className="font-black text-lg mb-3">{currentDay.name}</h2>
@@ -165,25 +215,62 @@ export default function Dashboard() {
                 <p className="text-xs text-zinc-600 pl-3.5">+{currentDay.exercises.length - 5} more</p>
               )}
             </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => toggleRestDay(today)}
+                className="flex items-center gap-1.5 border border-zinc-700 hover:border-blue-500/40 text-zinc-500 hover:text-blue-400 font-bold py-3 px-4 rounded-xl transition-colors text-sm flex-shrink-0"
+              >
+                <BedDouble size={15} /> Rest Day
+              </button>
+              <Link href="/workout"
+                className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition-colors active:scale-[0.98] text-base">
+                <Dumbbell size={18} />
+                Start Workout
+              </Link>
+            </div>
+          </div>
+        ) : isRestDay ? (
+          <div className="p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <BedDouble size={24} className="text-blue-400" />
+              <div>
+                <p className="font-bold">Rest &amp; Recovery</p>
+                <p className="text-xs text-zinc-500">No training today — focus on sleep, nutrition, hydration</p>
+              </div>
+            </div>
+            <button
+              onClick={() => toggleRestDay(today)}
+              className="w-full border border-dashed border-zinc-700 hover:border-orange-500/50 text-zinc-500 hover:text-orange-400 py-2.5 rounded-xl text-sm transition-colors"
+            >
+              Actually going to train today
+            </button>
             <Link href="/workout"
-              className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3.5 rounded-xl transition-colors active:scale-[0.98] text-base">
-              <Dumbbell size={18} />
-              Start Workout
+              className="w-full flex items-center justify-center gap-2 border border-zinc-700 hover:border-blue-500/40 text-zinc-500 hover:text-blue-400 font-semibold py-2.5 rounded-xl transition-colors text-sm"
+            >
+              <Activity size={14} /> Log Cardio Instead
             </Link>
           </div>
         ) : (
-          <div className="p-4 text-center">
-            <p className="text-zinc-500 text-sm mb-4">No active program.</p>
-            <Link href="/program"
-              className="inline-flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-6 rounded-xl transition-colors">
-              Choose Program <ChevronRight size={16} />
-            </Link>
+          <div className="p-4">
+            <div className="text-center mb-4">
+              <p className="text-zinc-500 text-sm mb-4">No active program.</p>
+              <Link href="/program"
+                className="inline-flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 px-6 rounded-xl transition-colors">
+                Choose Program <ChevronRight size={16} />
+              </Link>
+            </div>
+            <button
+              onClick={() => toggleRestDay(today)}
+              className="w-full flex items-center justify-center gap-1.5 border border-dashed border-zinc-700 hover:border-blue-500/40 text-zinc-600 hover:text-blue-400 py-2.5 rounded-xl text-sm transition-colors"
+            >
+              <BedDouble size={14} /> Mark as rest day
+            </button>
           </div>
         )}
       </div>
 
       {/* Weekly Activity + Cardio */}
-      <WeekCalendar logDates={logDates} cardioDateSet={cardioDateSet} today={today} />
+      <WeekCalendar logDates={logDates} cardioDateSet={cardioDateSet} today={today} restDays={restDays} />
 
       {/* Mesocycle Full Calendar */}
       <MesocycleCalendar
@@ -191,6 +278,7 @@ export default function Dashboard() {
         cardioLogs={cardioLogs}
         mesocycle={mesocycle}
         today={today}
+        restDays={restDays}
       />
 
       {/* Strength PRs */}
@@ -245,6 +333,159 @@ export default function Dashboard() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Daily Checklist + Journal
+// ─────────────────────────────────────────────────────────────────────────────
+function DailyChecklist({ items, doneCount, isRestDay, todayWeight, onToggleRestDay, onLogWeight, dailyNote, onSaveNote, dailyTip, tipLoading }: {
+  items: { label: string; done: boolean; href?: string; icon: React.ReactNode }[];
+  doneCount: number;
+  isRestDay: boolean;
+  todayWeight: number | null;
+  onToggleRestDay: () => void;
+  onLogWeight: (w: number) => void;
+  dailyNote: string;
+  onSaveNote: (note: string) => void;
+  dailyTip: string;
+  tipLoading: boolean;
+}) {
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(dailyNote);
+  const [weightEditing, setWeightEditing] = useState(false);
+  const [weightVal, setWeightVal] = useState('');
+  const total = items.length;
+  const allDone = doneCount >= total;
+
+  function saveNote() {
+    onSaveNote(noteDraft.trim());
+    setNoteOpen(false);
+  }
+
+  function saveWeight() {
+    const w = parseFloat(weightVal);
+    if (!w || w < 50 || w > 500) return;
+    onLogWeight(w);
+    setWeightEditing(false);
+    setWeightVal('');
+  }
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Today's Checklist</span>
+            {allDone && <span className="text-[10px] bg-green-500/20 text-green-400 font-bold px-2 py-0.5 rounded-full">Done!</span>}
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-orange-500 rounded-full transition-all"
+                style={{ width: `${(doneCount / total) * 100}%`, backgroundColor: allDone ? '#22c55e' : '#f97316' }}
+              />
+            </div>
+            <span className="text-[10px] text-zinc-600 font-bold">{doneCount}/{total}</span>
+          </div>
+        </div>
+        <button
+          onClick={() => { setNoteOpen(o => !o); setNoteDraft(dailyNote); }}
+          className={`p-2 rounded-xl border transition-colors ${dailyNote ? 'border-orange-500/30 text-orange-400' : 'border-zinc-700 text-zinc-600 hover:text-zinc-300'}`}
+          title="Daily journal note"
+        >
+          <NotebookPen size={14} />
+        </button>
+      </div>
+
+      {/* Checklist items */}
+      <div className="divide-y divide-zinc-800/50">
+        {items.map((item, i) => {
+          const content = (
+            <div className="flex items-center gap-3 px-4 py-3">
+              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${item.done ? 'border-green-500 bg-green-500/20' : 'border-zinc-700'}`}>
+                {item.done && <Check size={11} className="text-green-400" />}
+              </div>
+              <span className={`flex items-center gap-1.5 text-sm flex-1 ${item.done ? 'text-zinc-400' : 'text-zinc-200'}`}>
+                <span className={item.done ? 'text-green-500/60' : 'text-zinc-500'}>{item.icon}</span>
+                {item.label}
+              </span>
+              {!item.done && item.href && <ChevronRight size={13} className="text-zinc-700" />}
+              {i === 0 && !item.done && (
+                <button
+                  onClick={e => { e.preventDefault(); e.stopPropagation(); setWeightEditing(true); }}
+                  className="text-xs text-orange-400 font-semibold hover:text-orange-300 transition-colors"
+                >
+                  Log
+                </button>
+              )}
+            </div>
+          );
+          return item.href && !item.done ? (
+            <a key={i} href={item.href}>{content}</a>
+          ) : (
+            <div key={i}>{content}</div>
+          );
+        })}
+      </div>
+
+      {/* Inline weight entry */}
+      {weightEditing && (
+        <div className="px-4 pb-3 flex items-center gap-2">
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="lbs"
+            value={weightVal}
+            onChange={e => setWeightVal(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && saveWeight()}
+            autoFocus
+            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+          />
+          <button onClick={saveWeight} className="bg-orange-500 text-white text-sm font-bold px-4 py-2 rounded-xl active:scale-95">Save</button>
+          <button onClick={() => { setWeightEditing(false); setWeightVal(''); }} className="text-zinc-500 text-sm px-2 py-2">✕</button>
+        </div>
+      )}
+
+      {/* Journal note */}
+      {noteOpen && (
+        <div className="px-4 pb-3 space-y-2 border-t border-zinc-800">
+          <p className="text-xs text-zinc-500 font-semibold pt-2">Daily journal note</p>
+          <textarea
+            value={noteDraft}
+            onChange={e => setNoteDraft(e.target.value)}
+            placeholder="How's the day going? Energy, meals, life stress, anything worth remembering…"
+            rows={3}
+            autoFocus
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500 resize-none placeholder:text-zinc-600"
+          />
+          <div className="flex gap-2">
+            <button onClick={saveNote} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold py-2.5 rounded-xl transition-colors">Save</button>
+            <button onClick={() => setNoteOpen(false)} className="border border-zinc-700 text-zinc-500 text-sm font-bold py-2.5 px-4 rounded-xl">Cancel</button>
+          </div>
+        </div>
+      )}
+      {!noteOpen && dailyNote && (
+        <div className="px-4 pb-3 border-t border-zinc-800 pt-2">
+          <p className="text-xs text-zinc-500 italic truncate">{dailyNote}</p>
+        </div>
+      )}
+
+      {/* AI daily tip */}
+      {(dailyTip || tipLoading) && (
+        <div className="px-4 pb-3 border-t border-zinc-800 pt-3">
+          <div className="flex items-start gap-2">
+            <Brain size={13} className="text-orange-400 mt-0.5 flex-shrink-0" />
+            {tipLoading ? (
+              <span className="text-xs text-zinc-500 animate-pulse">Getting today's tip…</span>
+            ) : (
+              <p className="text-xs text-zinc-300 leading-relaxed">{dailyTip}</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Weight Widget
 // ─────────────────────────────────────────────────────────────────────────────
 function WeightWidget({ weightLogs, todayWeight, logWeight }: {
@@ -257,7 +498,6 @@ function WeightWidget({ weightLogs, todayWeight, logWeight }: {
 
   const today = todayISO();
 
-  // Trend: compare last 7 days avg vs prior 7
   const sorted = [...weightLogs].sort((a, b) => a.date.localeCompare(b.date));
   const recent = sorted.filter(l => l.date <= today).slice(-7);
   const prior = sorted.filter(l => l.date < (recent[0]?.date ?? today)).slice(-7);
@@ -341,23 +581,25 @@ function WeightWidget({ weightLogs, todayWeight, logWeight }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly Activity Strip (last 7 days)
 // ─────────────────────────────────────────────────────────────────────────────
-function WeekCalendar({ logDates, cardioDateSet, today }: {
+function WeekCalendar({ logDates, cardioDateSet, today, restDays }: {
   logDates: Set<string>;
   cardioDateSet: Set<string>;
   today: string;
+  restDays: string[];
 }) {
-  // Build Mon–Sun of the current week
   const base = new Date();
   const dow = base.getDay();
-  base.setDate(base.getDate() - (dow === 0 ? 6 : dow - 1)); // rewind to Monday
+  base.setDate(base.getDate() - (dow === 0 ? 6 : dow - 1));
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(base);
     d.setDate(base.getDate() + i);
     return d.toISOString().slice(0, 10);
   });
 
+  const restSet = new Set(restDays);
   const workouts = days.filter(d => logDates.has(d)).length;
   const cardios  = days.filter(d => cardioDateSet.has(d)).length;
+  const rests    = days.filter(d => restSet.has(d)).length;
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
@@ -366,6 +608,7 @@ function WeekCalendar({ logDates, cardioDateSet, today }: {
         <div className="flex gap-3 text-[10px] text-zinc-600">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-orange-500 inline-block" /> {workouts} lifts</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-500 inline-block" /> {cardios} cardio</span>
+          {rests > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-zinc-600 inline-block" /> {rests} rest</span>}
         </div>
       </div>
       <div className="flex gap-2">
@@ -373,10 +616,11 @@ function WeekCalendar({ logDates, cardioDateSet, today }: {
           const isToday = date === today;
           const isWorkout = logDates.has(date);
           const isCardio = cardioDateSet.has(date) && !isWorkout;
+          const isRest = restSet.has(date) && !isWorkout && !isCardio;
           const dayLabel = new Date(date + 'T12:00').toLocaleDateString('en-US', { weekday: 'narrow' });
           return (
             <div key={date} className="flex-1 flex flex-col items-center gap-1">
-              <div className={`w-full rounded-lg transition-all ${isToday ? 'ring-2 ring-orange-500 ring-offset-1 ring-offset-zinc-900' : ''} ${isWorkout ? 'bg-orange-500' : isCardio ? 'bg-blue-500' : 'bg-zinc-800'}`}
+              <div className={`w-full rounded-lg transition-all ${isToday ? 'ring-2 ring-orange-500 ring-offset-1 ring-offset-zinc-900' : ''} ${isWorkout ? 'bg-orange-500' : isCardio ? 'bg-blue-500' : isRest ? 'bg-zinc-600' : 'bg-zinc-800'}`}
                 style={{ height: isWorkout ? '36px' : isCardio ? '28px' : '20px' }} />
               <span className="text-[9px] text-zinc-600">{dayLabel}</span>
             </div>
@@ -390,14 +634,16 @@ function WeekCalendar({ logDates, cardioDateSet, today }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Full Mesocycle Calendar
 // ─────────────────────────────────────────────────────────────────────────────
-function MesocycleCalendar({ logs, cardioLogs, mesocycle, today }: {
+function MesocycleCalendar({ logs, cardioLogs, mesocycle, today, restDays }: {
   logs: ReturnType<typeof useLogs>;
   cardioLogs: ReturnType<typeof useCardio>['cardioLogs'];
   mesocycle: ReturnType<typeof useMesocycle>['mesocycle'];
   today: string;
+  restDays: string[];
 }) {
   const logDates = new Set(logs.map(l => l.date));
   const cardioDateSet = new Set(cardioLogs.map(c => c.date));
+  const restSet = new Set(restDays);
   const start = new Date(mesocycle.startDate + 'T12:00');
 
   const weeks = Array.from({ length: mesocycle.totalWeeks }, (_, wi) => {
@@ -408,7 +654,6 @@ function MesocycleCalendar({ logs, cardioLogs, mesocycle, today }: {
     });
   });
 
-  // Column day headers derived from week-1 dates
   const dayHeaders = (weeks[0] ?? []).map(d =>
     new Date(d + 'T12:00').toLocaleDateString('en-US', { weekday: 'narrow' })
   );
@@ -423,7 +668,6 @@ function MesocycleCalendar({ logs, cardioLogs, mesocycle, today }: {
         <Link href="/review" className="text-xs text-orange-400">Review →</Link>
       </div>
 
-      {/* Day-of-week headers */}
       <div className="flex items-center gap-2 mb-1">
         <span className="w-5" />
         <div className="flex gap-1 flex-1">
@@ -448,13 +692,14 @@ function MesocycleCalendar({ logs, cardioLogs, mesocycle, today }: {
                   const isToday = date === today;
                   const isWorkout = logDates.has(date);
                   const isCardio = cardioDateSet.has(date) && !isWorkout;
+                  const isRest = restSet.has(date) && !isWorkout && !isCardio;
                   const isFuture = date > today;
                   return (
                     <div key={date}
                       title={date}
                       className={`flex-1 aspect-square rounded-sm transition-colors ${
                         isToday ? 'ring-1 ring-white/40' : ''
-                      } ${isWorkout ? '' : isCardio ? 'bg-blue-500/70' : isFuture ? 'bg-zinc-800/50' : 'bg-zinc-800'}`}
+                      } ${isWorkout ? '' : isCardio ? 'bg-blue-500/70' : isRest ? 'bg-zinc-600/70' : isFuture ? 'bg-zinc-800/50' : 'bg-zinc-800'}`}
                       style={isWorkout ? { backgroundColor: phaseColor } : {}} />
                   );
                 })}
@@ -465,9 +710,8 @@ function MesocycleCalendar({ logs, cardioLogs, mesocycle, today }: {
         })}
       </div>
 
-      {/* Legend */}
       <div className="flex gap-3 mt-3 flex-wrap">
-        {[['Accumulation','#3b82f6'],['Intensification','#f97316'],['Peak','#ef4444'],['Deload','#22c55e'],['Cardio','#3b82f6']].map(([label, color]) => (
+        {[['Accumulation','#3b82f6'],['Intensification','#f97316'],['Peak','#ef4444'],['Deload','#22c55e'],['Cardio','#3b82f6'],['Rest','#52525b']].map(([label, color]) => (
           <span key={label} className="flex items-center gap-1 text-[9px] text-zinc-600">
             <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: color, opacity: label === 'Cardio' ? 0.7 : 1 }} />
             {label}

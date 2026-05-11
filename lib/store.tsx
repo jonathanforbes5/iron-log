@@ -31,6 +31,8 @@ const defaultState: AppState = {
   supplementLogs: [],
   weightLogs: [],
   pendingAIActions: [],
+  restDays: [],
+  dailyNotes: {},
   updatedAt: '',
 };
 
@@ -229,6 +231,36 @@ function reducer(state: AppState, action: AppAction): AppState {
         pendingAIActions: state.pendingAIActions.filter(a => a.id !== action.actionId),
       });
 
+    case 'TOGGLE_SKIP_EXERCISE': {
+      if (!state.activeWorkout) return state;
+      const already = (state.activeWorkout.skippedExercises ?? []).includes(action.exerciseId);
+      return {
+        ...state,
+        activeWorkout: {
+          ...state.activeWorkout,
+          skippedExercises: already
+            ? (state.activeWorkout.skippedExercises ?? []).filter(id => id !== action.exerciseId)
+            : [...(state.activeWorkout.skippedExercises ?? []), action.exerciseId],
+        },
+      };
+    }
+
+    case 'MARK_REST_DAY': {
+      const already = (state.restDays ?? []).includes(action.date);
+      return withTimestamp({
+        ...state,
+        restDays: already
+          ? (state.restDays ?? []).filter(d => d !== action.date)
+          : [...(state.restDays ?? []), action.date],
+      });
+    }
+
+    case 'SET_DAILY_NOTE':
+      return withTimestamp({
+        ...state,
+        dailyNotes: { ...(state.dailyNotes ?? {}), [action.date]: action.note },
+      });
+
     default:
       return state;
   }
@@ -362,7 +394,8 @@ export function useWorkout() {
     removeSet:     useCallback((id: string) => dispatch({ type: 'REMOVE_SET', setId: id }), [dispatch]),
     updateSet:        useCallback((s: SetLog) => dispatch({ type: 'UPDATE_SET', set: s }), [dispatch]),
     setExerciseNote:  useCallback((exerciseId: string, note: string) => dispatch({ type: 'SET_EXERCISE_NOTE', exerciseId, note }), [dispatch]),
-    swapExercise:  useCallback((orig: string, rep: string) => dispatch({ type: 'SWAP_EXERCISE', originalId: orig, replacementId: rep }), [dispatch]),
+    swapExercise:       useCallback((orig: string, rep: string) => dispatch({ type: 'SWAP_EXERCISE', originalId: orig, replacementId: rep }), [dispatch]),
+    toggleSkipExercise: useCallback((id: string) => dispatch({ type: 'TOGGLE_SKIP_EXERCISE', exerciseId: id }), [dispatch]),
     finishWorkout: useCallback((log: WorkoutLog) => dispatch({ type: 'FINISH_WORKOUT', log }), [dispatch]),
     cancelWorkout: useCallback(() => dispatch({ type: 'CANCEL_WORKOUT' }), [dispatch]),
   };
@@ -444,4 +477,19 @@ export function useWeightLog() {
   );
   const todayWeight = (state.weightLogs ?? []).find(l => l.date === todayISO())?.weight ?? null;
   return { weightLogs: state.weightLogs ?? [], todayWeight, logWeight };
+}
+
+export function useRestDays() {
+  const { state, dispatch } = useStore();
+  const toggle = useCallback((date: string) => dispatch({ type: 'MARK_REST_DAY', date }), [dispatch]);
+  return { restDays: state.restDays ?? [], toggle };
+}
+
+export function useDailyNotes() {
+  const { state, dispatch } = useStore();
+  const setNote = useCallback(
+    (date: string, note: string) => dispatch({ type: 'SET_DAILY_NOTE', date, note }),
+    [dispatch],
+  );
+  return { dailyNotes: state.dailyNotes ?? {}, setNote };
 }
