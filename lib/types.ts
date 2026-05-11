@@ -215,6 +215,7 @@ export type AppAction =
   | { type: 'ADD_WEEKLY_REVIEW'; review: WeeklyReview }
   | { type: 'TOGGLE_SUPPLEMENT'; date: string; supplementId: string }
   | { type: 'LOG_WEIGHT'; log: WeightLog }
+  | { type: 'UPDATE_SET'; set: SetLog }
   | { type: 'ADD_AI_ACTIONS'; actions: AIAction[] }
   | { type: 'APPLY_AI_ACTION'; actionId: string }
   | { type: 'DISMISS_AI_ACTION'; actionId: string }

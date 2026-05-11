@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach } from '@/lib/store';
+import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach, useSettings } from '@/lib/store';
 import { ActiveWorkout, ProgramExercise, SetLog, CardioLog, WorkoutLog } from '@/lib/types';
 import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES } from '@/lib/exercises';
 import {
@@ -9,14 +9,14 @@ import {
   getSuggestedWeightRange, getAccessorySuggestion, totalVolume, workingSetCount, calcPlates, getWarmupRamp,
 } from '@/lib/utils';
 import { getAdvancedCoachingAnalysis } from '@/lib/ai';
-import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap, Eye, MessageSquare } from 'lucide-react';
+import { Plus, Check, Timer, X, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap, Eye, MessageSquare, FileText, Pencil } from 'lucide-react';
 import Link from 'next/link';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 export default function WorkoutPage() {
-  const { activeWorkout, startWorkout, logSet, removeSet, swapExercise, finishWorkout, cancelWorkout } = useWorkout();
+  const { activeWorkout, startWorkout, logSet, removeSet, updateSet, swapExercise, finishWorkout, cancelWorkout } = useWorkout();
   const { program, currentDay } = useActiveProgram();
   const logs = useLogs();
   const { profile } = useProfile();
@@ -101,6 +101,7 @@ export default function WorkoutPage() {
         profile={profile}
         onLogSet={logSet}
         onRemoveSet={removeSet}
+        onUpdateSet={updateSet}
         onSwap={swapExercise}
         onFinish={handleFinishWorkout}
         onCancel={cancelWorkout}
@@ -277,12 +278,13 @@ function WorkoutPreview({ program, day, logs, profile, onStart, onClose }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Active Workout
 // ─────────────────────────────────────────────────────────────────────────────
-function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSwap, onFinish, onCancel }: {
+function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUpdateSet, onSwap, onFinish, onCancel }: {
   workout: ActiveWorkout;
   logs: ReturnType<typeof useLogs>;
   profile: ReturnType<typeof useProfile>['profile'];
   onLogSet: (s: SetLog) => void;
   onRemoveSet: (id: string) => void;
+  onUpdateSet: (s: SetLog) => void;
   onSwap: (orig: string, rep: string) => void;
   onFinish: (log: import('@/lib/types').WorkoutLog) => void;
   onCancel: () => void;
@@ -292,6 +294,8 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
   const [finishModal, setFinishModal] = useState(false);
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [extraExercises, setExtraExercises] = useState<ProgramExercise[]>([]);
+  const [workoutNote, setWorkoutNote] = useState('');
+  const [notesPanelOpen, setNotesPanelOpen] = useState(false);
 
   useEffect(() => {
     const startMs = new Date(workout.startTime).getTime();
@@ -430,10 +434,38 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
               logs={logs}
               onLogSet={handleLogSet}
               onRemoveSet={onRemoveSet}
+              onUpdateSet={onUpdateSet}
               onSwap={rep => onSwap(originalId, rep)}
             />
           );
         })}
+
+        {/* Workout-level notes */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setNotesPanelOpen(o => !o)}
+            className="w-full flex items-center gap-2.5 px-4 py-3 text-left"
+          >
+            <FileText size={14} className={workoutNote ? 'text-orange-400' : 'text-zinc-600'} />
+            <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex-1">Workout Notes</span>
+            {workoutNote && !notesPanelOpen && (
+              <span className="text-[10px] text-zinc-600 italic truncate max-w-[140px]">{workoutNote}</span>
+            )}
+            <ChevronDown size={12} className={`text-zinc-600 transition-transform ${notesPanelOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {notesPanelOpen && (
+            <div className="px-4 pb-4">
+              <textarea
+                value={workoutNote}
+                onChange={e => setWorkoutNote(e.target.value)}
+                placeholder="Felt strong today, left knee tight, PR on squat…"
+                rows={3}
+                autoFocus
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500 resize-none placeholder:text-zinc-600"
+              />
+            </div>
+          )}
+        </div>
 
         <AddExerciseButton onAdd={id => setExtraExercises(e => [...e, { exerciseId: id, sets: 3, repsMin: 8, repsMax: 12, alternatives: EXERCISE_ALTERNATIVES[id] }])} />
       </div>
@@ -442,6 +474,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
         <FinishModal
           workout={workout}
           elapsed={elapsed}
+          initialNotes={workoutNote}
           onConfirm={(rating, notes, bw) => {
             const log: import('@/lib/types').WorkoutLog = {
               id: uid(), date: new Date().toISOString().slice(0,10),
@@ -463,7 +496,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
 // ─────────────────────────────────────────────────────────────────────────────
 // Exercise Card
 // ─────────────────────────────────────────────────────────────────────────────
-function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, allTimeBest, suggestedWeight, alternatives, logs, onLogSet, onRemoveSet, onSwap }: {
+function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, allTimeBest, suggestedWeight, alternatives, logs, onLogSet, onRemoveSet, onUpdateSet, onSwap }: {
   exerciseId: string;
   originalId: string;
   planned?: ProgramExercise;
@@ -475,6 +508,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   logs: WorkoutLog[];
   onLogSet: (s: SetLog) => void;
   onRemoveSet: (id: string) => void;
+  onUpdateSet: (s: SetLog) => void;
   onSwap: (replacementId: string) => void;
 }) {
   const initWeight = lastPerformance?.weight.toString() ?? suggestedWeight?.high.toString() ?? '';
@@ -489,6 +523,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   const [quickLog, setQuickLog] = useState(false);
   const [note, setNote] = useState('');
   const [noteOpen, setNoteOpen] = useState(false);
+  const [editingSetId, setEditingSetId] = useState<string | null>(null);
   const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
   // Track the best e1RM so far in this session (starts at allTimeBest)
   const sessionBest = useRef<number>(allTimeBest ?? 0);
@@ -726,8 +761,26 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
               {sets.map((set, i) => {
                 const workingIdx = sets.filter((s, j) => !s.isWarmup && j < i).length;
                 const isPR = prSetIds.has(set.id);
+                const isEditing = editingSetId === set.id;
+
+                if (isEditing) {
+                  return (
+                    <SetEditRow
+                      key={set.id}
+                      set={set}
+                      onSave={updated => { onUpdateSet(updated); setEditingSetId(null); }}
+                      onDelete={() => { onRemoveSet(set.id); setEditingSetId(null); }}
+                      onCancel={() => setEditingSetId(null)}
+                    />
+                  );
+                }
+
                 return (
-                  <div key={set.id} className={`rounded-lg mb-0.5 ${set.isWarmup ? 'opacity-40' : isPR ? 'bg-yellow-500/10 border border-yellow-500/20' : 'bg-zinc-800/50'}`}>
+                  <div
+                    key={set.id}
+                    className={`rounded-lg mb-0.5 cursor-pointer active:opacity-70 transition-opacity ${set.isWarmup ? 'opacity-40' : isPR ? 'bg-yellow-500/10 border border-yellow-500/20' : 'bg-zinc-800/50'}`}
+                    onClick={() => setEditingSetId(set.id)}
+                  >
                     <div className="grid grid-cols-[2rem_1fr_1fr_1fr_auto] items-center py-1.5 px-1 gap-1">
                       <span className="text-xs text-zinc-500">{set.isWarmup ? 'W' : workingIdx + 1}</span>
                       <span className="text-sm font-semibold">{set.weight}</span>
@@ -735,9 +788,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
                       <span className={`text-sm ${rpeColor(set.rpe)}`}>{set.rpe ?? '—'}</span>
                       <div className="flex items-center gap-1">
                         {isPR && <Trophy size={11} className="text-yellow-400" />}
-                        <button onClick={() => onRemoveSet(set.id)} className="text-zinc-700 hover:text-red-400 transition-colors">
-                          <X size={11} />
-                        </button>
+                        <Pencil size={10} className="text-zinc-700" />
                       </div>
                     </div>
                     {set.note && (
@@ -903,6 +954,70 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
 
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Inline set editor
+// ─────────────────────────────────────────────────────────────────────────────
+function SetEditRow({ set, onSave, onDelete, onCancel }: {
+  set: SetLog;
+  onSave: (updated: SetLog) => void;
+  onDelete: () => void;
+  onCancel: () => void;
+}) {
+  const [weight, setWeight] = useState(String(set.weight));
+  const [reps, setReps]     = useState(String(set.reps));
+  const [rpe, setRpe]       = useState(set.rpe ? String(set.rpe) : '');
+  const [note, setNote]     = useState(set.note ?? '');
+
+  function save() {
+    const w = parseFloat(weight);
+    const r = parseInt(reps);
+    if (!w || !r) return;
+    onSave({ ...set, weight: w, reps: r, rpe: rpe ? parseFloat(rpe) : undefined, note: note.trim() || undefined });
+  }
+
+  return (
+    <div className="bg-zinc-800 border border-orange-500/30 rounded-xl p-2.5 mb-1 space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <p className="text-[9px] text-zinc-500 mb-1 text-center">Weight</p>
+          <input type="number" value={weight} onChange={e => setWeight(e.target.value)}
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg py-1.5 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin" />
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-500 mb-1 text-center">Reps</p>
+          <input type="number" value={reps} onChange={e => setReps(e.target.value)}
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg py-1.5 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin" />
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-500 mb-1 text-center">RPE</p>
+          <input type="number" placeholder="—" value={rpe} onChange={e => setRpe(e.target.value)}
+            className="w-full bg-zinc-700 border border-zinc-600 rounded-lg py-1.5 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin" />
+        </div>
+      </div>
+      <input
+        type="text"
+        placeholder="Note (optional)"
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && save()}
+        maxLength={60}
+        className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-orange-500 placeholder:text-zinc-600"
+      />
+      <div className="flex gap-1.5">
+        <button onClick={onDelete} className="text-red-400/70 hover:text-red-400 text-xs px-2 py-1.5 rounded-lg border border-red-500/20 hover:border-red-500/40 transition-colors">
+          Delete
+        </button>
+        <button onClick={onCancel} className="flex-1 text-xs font-bold py-1.5 rounded-lg border border-zinc-600 text-zinc-400 hover:bg-zinc-700 transition-colors">
+          Cancel
+        </button>
+        <button onClick={save} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold py-1.5 rounded-lg transition-colors">
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Add Exercise Button
 // ─────────────────────────────────────────────────────────────────────────────
 function AddExerciseButton({ onAdd }: { onAdd: (id: string) => void }) {
@@ -1027,15 +1142,16 @@ function QuickLogPanel({ targetSets, initWeight, initReps, onLogAll, onCancel }:
 // ─────────────────────────────────────────────────────────────────────────────
 // Finish Modal
 // ─────────────────────────────────────────────────────────────────────────────
-function FinishModal({ workout, elapsed, onConfirm, onCancel, onAbandon }: {
+function FinishModal({ workout, elapsed, initialNotes, onConfirm, onCancel, onAbandon }: {
   workout: ActiveWorkout;
   elapsed: number;
+  initialNotes?: string;
   onConfirm: (rating: 1|2|3|4|5, notes: string, bw: string) => void;
   onCancel: () => void;
   onAbandon: () => void;
 }) {
   const [rating, setRating] = useState<1|2|3|4|5>(4);
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(initialNotes ?? '');
   const [bw, setBw] = useState('');
 
   const workingSets = workout.sets.filter(s => !s.isWarmup);
