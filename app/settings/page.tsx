@@ -253,9 +253,31 @@ export default function SettingsPage() {
         {saved ? 'Saved!' : 'Save Changes'}
       </button>
 
+      {/* Pull from cloud — wipes local state and reloads from KV */}
+      <button
+        onClick={() => {
+          if (!confirm('This will replace your local data with the latest cloud save. Any unsynced local changes will be lost. Continue?')) return;
+          try {
+            // Clear all ironlog localStorage keys
+            const keys = Object.keys(localStorage).filter(k => k.startsWith('ironlog') || k.startsWith('dailytip'));
+            keys.forEach(k => localStorage.removeItem(k));
+          } catch { /* ignore */ }
+          window.location.reload();
+        }}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-zinc-800 text-zinc-500 hover:text-blue-400 hover:border-blue-500/30 transition-colors text-sm"
+      >
+        <RefreshCw size={14} />
+        Pull latest from cloud
+      </button>
+
       <button
         onClick={async () => {
           await fetch('/api/auth/logout', { method: 'POST' });
+          // Clear local state so next login pulls fresh from KV
+          try {
+            const keys = Object.keys(localStorage).filter(k => k.startsWith('ironlog') || k.startsWith('dailytip'));
+            keys.forEach(k => localStorage.removeItem(k));
+          } catch { /* ignore */ }
           router.replace('/login');
         }}
         className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors text-sm"
