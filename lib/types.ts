@@ -152,6 +152,28 @@ export interface WeightLog {
   weight: number; // lbs
 }
 
+export interface ProgressPhoto {
+  id: string;
+  date: string;        // YYYY-MM-DD
+  caption?: string;
+  bodyweight?: number; // lbs at time of photo
+  weekLabel?: string;  // e.g. "Week 4" or custom
+}
+
+export interface BodyMeasurement {
+  id: string;
+  date: string;        // YYYY-MM-DD
+  weight?: number;     // lbs
+  waist?: number;      // inches
+  chest?: number;      // inches
+  hips?: number;       // inches
+  leftArm?: number;    // inches
+  rightArm?: number;   // inches
+  leftThigh?: number;  // inches
+  rightThigh?: number; // inches
+  notes?: string;
+}
+
 export interface Mesocycle {
   startDate: string;
   totalWeeks: number;
@@ -200,6 +222,9 @@ export interface AppState {
   pendingAIActions: AIAction[];
   restDays: string[];                       // YYYY-MM-DD dates marked as rest days
   dailyNotes: Record<string, string>;       // date → free-text journal note
+  hydrationLogs: Record<string, number>;    // date → glasses of water
+  progressPhotos: ProgressPhoto[];
+  bodyMeasurements: BodyMeasurement[];
   updatedAt: string; // ISO timestamp for cross-device sync conflict resolution
 }
 
@@ -231,4 +256,9 @@ export type AppAction =
   | { type: 'TOGGLE_SKIP_EXERCISE'; exerciseId: string }
   | { type: 'MARK_REST_DAY'; date: string }
   | { type: 'SET_DAILY_NOTE'; date: string; note: string }
+  | { type: 'LOG_HYDRATION'; date: string; count: number }
+  | { type: 'ADD_PROGRESS_PHOTO'; photo: ProgressPhoto }
+  | { type: 'DELETE_PROGRESS_PHOTO'; id: string }
+  | { type: 'ADD_BODY_MEASUREMENT'; measurement: BodyMeasurement }
+  | { type: 'DELETE_BODY_MEASUREMENT'; id: string }
   | { type: 'LOAD_STATE'; state: AppState };

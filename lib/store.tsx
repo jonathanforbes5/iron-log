@@ -4,6 +4,7 @@ import React, { createContext, useContext, useReducer, useEffect, useCallback, u
 import {
   AppState, AppAction, Program, WorkoutLog, SetLog,
   ActiveWorkout, UserProfile, ReadinessCheckin, CardioLog, WeeklyReview, Mesocycle, AIAction, DailySupplementLog, WeightLog,
+  ProgressPhoto, BodyMeasurement,
 } from './types';
 import { applyAIAction } from './aiActions';
 import { todayISO } from './utils';
@@ -33,6 +34,9 @@ const defaultState: AppState = {
   pendingAIActions: [],
   restDays: [],
   dailyNotes: {},
+  hydrationLogs: {},
+  progressPhotos: [],
+  bodyMeasurements: [],
   updatedAt: '',
 };
 
@@ -261,6 +265,39 @@ function reducer(state: AppState, action: AppAction): AppState {
         dailyNotes: { ...(state.dailyNotes ?? {}), [action.date]: action.note },
       });
 
+    case 'LOG_HYDRATION':
+      return withTimestamp({
+        ...state,
+        hydrationLogs: { ...(state.hydrationLogs ?? {}), [action.date]: action.count },
+      });
+
+    case 'ADD_PROGRESS_PHOTO':
+      return withTimestamp({
+        ...state,
+        progressPhotos: [action.photo, ...(state.progressPhotos ?? [])],
+      });
+
+    case 'DELETE_PROGRESS_PHOTO':
+      return withTimestamp({
+        ...state,
+        progressPhotos: (state.progressPhotos ?? []).filter(p => p.id !== action.id),
+      });
+
+    case 'ADD_BODY_MEASUREMENT':
+      return withTimestamp({
+        ...state,
+        bodyMeasurements: [
+          action.measurement,
+          ...(state.bodyMeasurements ?? []).filter(m => m.date !== action.measurement.date),
+        ],
+      });
+
+    case 'DELETE_BODY_MEASUREMENT':
+      return withTimestamp({
+        ...state,
+        bodyMeasurements: (state.bodyMeasurements ?? []).filter(m => m.id !== action.id),
+      });
+
     default:
       return state;
   }
@@ -477,6 +514,29 @@ export function useWeightLog() {
   );
   const todayWeight = (state.weightLogs ?? []).find(l => l.date === todayISO())?.weight ?? null;
   return { weightLogs: state.weightLogs ?? [], todayWeight, logWeight };
+}
+
+export function useHydration() {
+  const { state, dispatch } = useStore();
+  const logHydration = useCallback(
+    (date: string, count: number) => dispatch({ type: 'LOG_HYDRATION', date, count }),
+    [dispatch],
+  );
+  return { hydrationLogs: state.hydrationLogs ?? {}, logHydration };
+}
+
+export function useProgressPhotos() {
+  const { state, dispatch } = useStore();
+  const addPhoto    = useCallback((photo: ProgressPhoto) => dispatch({ type: 'ADD_PROGRESS_PHOTO', photo }), [dispatch]);
+  const deletePhoto = useCallback((id: string) => dispatch({ type: 'DELETE_PROGRESS_PHOTO', id }), [dispatch]);
+  return { progressPhotos: state.progressPhotos ?? [], addPhoto, deletePhoto };
+}
+
+export function useBodyMeasurements() {
+  const { state, dispatch } = useStore();
+  const addMeasurement    = useCallback((m: BodyMeasurement) => dispatch({ type: 'ADD_BODY_MEASUREMENT', measurement: m }), [dispatch]);
+  const deleteMeasurement = useCallback((id: string) => dispatch({ type: 'DELETE_BODY_MEASUREMENT', id }), [dispatch]);
+  return { bodyMeasurements: state.bodyMeasurements ?? [], addMeasurement, deleteMeasurement };
 }
 
 export function useRestDays() {

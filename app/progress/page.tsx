@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { useLogs, useWeightLog } from '@/lib/store';
-import { todayISO } from '@/lib/utils';
+import { useState, useEffect, useRef } from 'react';
+import { useLogs, useWeightLog, useProgressPhotos } from '@/lib/store';
+import { todayISO, uid } from '@/lib/utils';
 import { EXERCISES } from '@/lib/exercises';
 import { getProgressData, calcE1RM, formatDate, formatDateShort, getPreviousBest, totalVolume, workingSetCount, formatDuration } from '@/lib/utils';
-import { WorkoutLog } from '@/lib/types';
+import { WorkoutLog, ProgressPhoto } from '@/lib/types';
+import { savePhotoData, loadPhotoData, deletePhotoData, compressImage } from '@/lib/photoStorage';
 import {
   LineChart,
   Line,
@@ -15,7 +16,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { TrendingUp, Trophy, Dumbbell, History, BarChart3, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingUp, Trophy, Dumbbell, History, BarChart3, Clock, ChevronDown, ChevronUp, Camera, Trash2, X, GitCompareArrows, Plus } from 'lucide-react';
 
 const MAIN_LIFTS = ['squat', 'bench', 'deadlift', 'ohp'];
 
@@ -34,8 +35,9 @@ const MUSCLE_MEV: Record<string, { mev: number; mav: number; label: string }> = 
 export default function ProgressPage() {
   const logs = useLogs();
   const { weightLogs } = useWeightLog();
+  const { progressPhotos } = useProgressPhotos();
   const [selectedExercise, setSelectedExercise] = useState('squat');
-  const [view, setView] = useState<'charts' | 'history'>('charts');
+  const [view, setView] = useState<'charts' | 'history' | 'photos'>('charts');
 
   // Exercises that have been logged
   const loggedExerciseIds = Array.from(new Set(logs.flatMap(l => l.sets.map(s => s.exerciseId))));
@@ -82,10 +84,13 @@ export default function ProgressPage() {
     }
   }
 
-  if (logs.length === 0) {
+  if (logs.length === 0 && view !== 'photos') {
     return (
-      <div className="px-4 pt-6">
-        <h1 className="text-2xl font-black tracking-tight mb-8">Progress</h1>
+      <div className="px-4 pt-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-black tracking-tight">Progress</h1>
+          <button onClick={() => setView('photos')} className="text-xs font-bold text-orange-400 border border-orange-500/30 px-3 py-1.5 rounded-xl">Photos</button>
+        </div>
         <div className="text-center py-16 space-y-3">
           <TrendingUp size={40} className="mx-auto text-zinc-700" />
           <p className="text-zinc-500">Log some workouts to see your progress.</p>
@@ -108,8 +113,17 @@ export default function ProgressPage() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${view === 'history' ? 'bg-orange-500 text-white' : 'text-zinc-500'}`}>
             <History size={12} /> History
           </button>
+          <button onClick={() => setView('photos')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${view === 'photos' ? 'bg-orange-500 text-white' : 'text-zinc-500'}`}>
+            <Camera size={12} /> Photos
+          </button>
         </div>
       </div>
+
+      {/* Photos view */}
+      {view === 'photos' && (
+        <PhotosView photos={progressPhotos} />
+      )}
 
       {/* History view */}
       {view === 'history' && (
@@ -403,6 +417,235 @@ function CalendarGrid({ logs }: { logs: ReturnType<typeof useLogs> }) {
           className={`aspect-square rounded-sm ${logDates.has(date) ? 'bg-orange-500' : 'bg-zinc-800'}`}
         />
       ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Photos View
+// ─────────────────────────────────────────────────────────────────────────────
+function PhotosView({ photos }: { photos: ProgressPhoto[] }) {
+  const { addPhoto, deletePhoto } = useProgressPhotos();
+  const { todayWeight } = useWeightLog();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [caption, setCaption] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [compareA, setCompareA] = useState<string | null>(null);
+  const [compareB, setCompareB] = useState<string | null>(null);
+  const [viewPhoto, setViewPhoto] = useState<string | null>(null);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+
+  // Load all photo data URLs from localStorage
+  useEffect(() => {
+    const urls: Record<string, string> = {};
+    for (const p of photos) {
+      const data = loadPhotoData(p.id);
+      if (data) urls[p.id] = data;
+    }
+    setPhotoUrls(urls);
+  }, [photos]);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const dataUrl = await compressImage(file);
+      const id = uid();
+      savePhotoData(id, dataUrl);
+      const photo: ProgressPhoto = {
+        id,
+        date: todayISO(),
+        caption: caption.trim() || undefined,
+        bodyweight: todayWeight ?? undefined,
+      };
+      addPhoto(photo);
+      setPhotoUrls(prev => ({ ...prev, [id]: dataUrl }));
+      setShowAdd(false);
+      setCaption('');
+    } catch { /* ignore */ }
+    setUploading(false);
+    if (fileRef.current) fileRef.current.value = '';
+  }
+
+  function handleDelete(id: string) {
+    deletePhotoData(id);
+    deletePhoto(id);
+    setPhotoUrls(prev => { const n = { ...prev }; delete n[id]; return n; });
+    if (compareA === id) setCompareA(null);
+    if (compareB === id) setCompareB(null);
+    if (viewPhoto === id) setViewPhoto(null);
+  }
+
+  const sorted = [...photos].sort((a, b) => b.date.localeCompare(a.date));
+
+  // Fullscreen viewer
+  if (viewPhoto) {
+    const p = photos.find(x => x.id === viewPhoto);
+    return (
+      <div className="fixed inset-0 bg-black z-50 flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3">
+          <button onClick={() => setViewPhoto(null)} className="text-zinc-400 hover:text-white">
+            <X size={22} />
+          </button>
+          <div className="text-center">
+            <p className="text-sm font-bold">{p ? formatDate(p.date) : ''}</p>
+            {p?.bodyweight && <p className="text-xs text-zinc-500">{p.bodyweight} lbs</p>}
+          </div>
+          <button onClick={() => p && handleDelete(p.id)} className="text-red-400 hover:text-red-300">
+            <Trash2 size={18} />
+          </button>
+        </div>
+        {photoUrls[viewPhoto] && (
+          <div className="flex-1 flex items-center justify-center px-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photoUrls[viewPhoto]} alt="" className="max-w-full max-h-full rounded-2xl object-contain" />
+          </div>
+        )}
+        {p?.caption && <p className="text-center text-sm text-zinc-400 px-4 py-3 italic">{p.caption}</p>}
+      </div>
+    );
+  }
+
+  // Compare view
+  if (compareA && compareB) {
+    const pA = photos.find(x => x.id === compareA);
+    const pB = photos.find(x => x.id === compareB);
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-black text-lg">Comparison</h2>
+          <button onClick={() => { setCompareA(null); setCompareB(null); }} className="text-xs font-bold text-zinc-500 border border-zinc-700 px-3 py-1.5 rounded-xl">Done</button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {[{ id: compareA, p: pA }, { id: compareB, p: pB }].map(({ id, p }) => (
+            <div key={id} className="space-y-1">
+              <div className="bg-zinc-900 rounded-2xl overflow-hidden aspect-[3/4]">
+                {photoUrls[id] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={photoUrls[id]} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-zinc-800">
+                    <Camera size={24} className="text-zinc-600" />
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-zinc-400 text-center font-semibold">{p ? formatDateShort(p.date) : ''}</p>
+              {p?.bodyweight && <p className="text-[10px] text-zinc-600 text-center">{p.bodyweight} lbs</p>}
+            </div>
+          ))}
+        </div>
+        {pA && pB && pA.bodyweight && pB.bodyweight && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center">
+            <p className="text-xs text-zinc-500 mb-1">Weight change</p>
+            <p className={`text-2xl font-black ${pB.bodyweight > pA.bodyweight ? 'text-orange-400' : 'text-blue-400'}`}>
+              {pB.bodyweight > pA.bodyweight ? '+' : ''}{(pB.bodyweight - pA.bodyweight).toFixed(1)} lbs
+            </p>
+            <p className="text-xs text-zinc-600 mt-0.5">{formatDateShort(pA.date)} → {formatDateShort(pB.date)}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Action bar */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-zinc-500">{sorted.length} photo{sorted.length !== 1 ? 's' : ''}</p>
+        <div className="flex gap-2">
+          {sorted.length >= 2 && !compareA && (
+            <button
+              onClick={() => { setCompareA(sorted[sorted.length - 1].id); setCompareB(sorted[0].id); }}
+              className="flex items-center gap-1.5 text-xs font-bold border border-zinc-700 text-zinc-400 hover:text-zinc-200 px-3 py-1.5 rounded-xl transition-colors"
+            >
+              <GitCompareArrows size={13} /> Compare
+            </button>
+          )}
+          <button
+            onClick={() => setShowAdd(s => !s)}
+            className="flex items-center gap-1.5 text-xs font-bold bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-xl transition-colors"
+          >
+            <Camera size={13} /> Add Photo
+          </button>
+        </div>
+      </div>
+
+      {/* Add photo panel */}
+      {showAdd && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-3">
+          <p className="text-sm font-bold">Add Progress Photo</p>
+          <input
+            type="text"
+            placeholder="Caption (optional)"
+            value={caption}
+            onChange={e => setCaption(e.target.value)}
+            maxLength={80}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500 placeholder:text-zinc-600"
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            capture="user"
+            onChange={handleFile}
+            className="hidden"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => { if (fileRef.current) { fileRef.current.removeAttribute('capture'); fileRef.current.click(); } }}
+              disabled={uploading}
+              className="flex flex-col items-center gap-2 py-5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl transition-colors disabled:opacity-50"
+            >
+              <Camera size={22} className="text-zinc-400" />
+              <span className="text-xs text-zinc-400 font-semibold">From Gallery</span>
+            </button>
+            <button
+              onClick={() => { if (fileRef.current) { fileRef.current.setAttribute('capture', 'environment'); fileRef.current.click(); } }}
+              disabled={uploading}
+              className="flex flex-col items-center gap-2 py-5 bg-zinc-800 hover:bg-zinc-700 border border-dashed border-orange-500/40 rounded-xl transition-colors disabled:opacity-50"
+            >
+              <Camera size={22} className="text-orange-400" />
+              <span className="text-xs text-orange-400 font-semibold">Take Photo</span>
+            </button>
+          </div>
+          {uploading && <p className="text-xs text-zinc-500 text-center">Saving…</p>}
+          <button onClick={() => setShowAdd(false)} className="w-full text-xs text-zinc-600 py-1">Cancel</button>
+        </div>
+      )}
+
+      {/* Gallery grid */}
+      {sorted.length === 0 ? (
+        <div className="text-center py-16 space-y-3">
+          <Camera size={40} className="mx-auto text-zinc-700" />
+          <p className="text-zinc-500 text-sm">No progress photos yet.</p>
+          <p className="text-xs text-zinc-600">Take a weekly fit pic to track your physique over time.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2">
+          {sorted.map(photo => (
+            <button
+              key={photo.id}
+              onClick={() => setViewPhoto(photo.id)}
+              className="relative aspect-square rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-zinc-600 transition-colors"
+            >
+              {photoUrls[photo.id] ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photoUrls[photo.id]} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <Camera size={18} className="text-zinc-600" />
+                </div>
+              )}
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-1.5">
+                <p className="text-[9px] text-white font-bold leading-tight">{formatDateShort(photo.date)}</p>
+                {photo.bodyweight && <p className="text-[8px] text-zinc-300">{photo.bodyweight} lbs</p>}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
