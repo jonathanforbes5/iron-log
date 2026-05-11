@@ -9,7 +9,7 @@ import {
   getSuggestedWeightRange, totalVolume, workingSetCount, calcPlates, getWarmupRamp,
 } from '@/lib/utils';
 import { getAdvancedCoachingAnalysis } from '@/lib/ai';
-import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap, Eye } from 'lucide-react';
+import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap, Eye, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -487,6 +487,8 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   const [showInfo, setShowInfo] = useState(false);
   const [showPlates, setShowPlates] = useState(false);
   const [quickLog, setQuickLog] = useState(false);
+  const [note, setNote] = useState('');
+  const [noteOpen, setNoteOpen] = useState(false);
   const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
   // Track the best e1RM so far in this session (starts at allTimeBest)
   const sessionBest = useRef<number>(allTimeBest ?? 0);
@@ -528,7 +530,9 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
         sessionBest.current = thisE1rm;
       }
     }
-    onLogSet({ id: setId, exerciseId, exerciseName: getExerciseName(exerciseId), setNumber: sets.length + 1, weight: w, reps: r, rpe: rpe ? parseFloat(rpe) : undefined, isWarmup });
+    onLogSet({ id: setId, exerciseId, exerciseName: getExerciseName(exerciseId), setNumber: sets.length + 1, weight: w, reps: r, rpe: rpe ? parseFloat(rpe) : undefined, isWarmup, note: note.trim() || undefined });
+    setNote('');
+    setNoteOpen(false);
     setIsWarmup(false);
   }
 
@@ -682,17 +686,22 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
                 const workingIdx = sets.filter((s, j) => !s.isWarmup && j < i).length;
                 const isPR = prSetIds.has(set.id);
                 return (
-                  <div key={set.id} className={`grid grid-cols-[2rem_1fr_1fr_1fr_auto] items-center py-1.5 px-1 rounded-lg mb-0.5 gap-1 ${set.isWarmup ? 'opacity-40' : isPR ? 'bg-yellow-500/10 border border-yellow-500/20' : 'bg-zinc-800/50'}`}>
-                    <span className="text-xs text-zinc-500">{set.isWarmup ? 'W' : workingIdx + 1}</span>
-                    <span className="text-sm font-semibold">{set.weight}</span>
-                    <span className="text-sm">{set.reps}</span>
-                    <span className={`text-sm ${rpeColor(set.rpe)}`}>{set.rpe ?? '—'}</span>
-                    <div className="flex items-center gap-1">
-                      {isPR && <Trophy size={11} className="text-yellow-400" />}
-                      <button onClick={() => onRemoveSet(set.id)} className="text-zinc-700 hover:text-red-400 transition-colors">
-                        <X size={11} />
-                      </button>
+                  <div key={set.id} className={`rounded-lg mb-0.5 ${set.isWarmup ? 'opacity-40' : isPR ? 'bg-yellow-500/10 border border-yellow-500/20' : 'bg-zinc-800/50'}`}>
+                    <div className="grid grid-cols-[2rem_1fr_1fr_1fr_auto] items-center py-1.5 px-1 gap-1">
+                      <span className="text-xs text-zinc-500">{set.isWarmup ? 'W' : workingIdx + 1}</span>
+                      <span className="text-sm font-semibold">{set.weight}</span>
+                      <span className="text-sm">{set.reps}</span>
+                      <span className={`text-sm ${rpeColor(set.rpe)}`}>{set.rpe ?? '—'}</span>
+                      <div className="flex items-center gap-1">
+                        {isPR && <Trophy size={11} className="text-yellow-400" />}
+                        <button onClick={() => onRemoveSet(set.id)} className="text-zinc-700 hover:text-red-400 transition-colors">
+                          <X size={11} />
+                        </button>
+                      </div>
                     </div>
+                    {set.note && (
+                      <p className="px-2 pb-1.5 text-[10px] text-zinc-500 italic">— {set.note}</p>
+                    )}
                   </div>
                 );
               })}
@@ -702,15 +711,24 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
           {/* Input area — single set or quick multi-set */}
           <div className="px-4 pb-4 space-y-3">
 
-            {/* Mode toggle (only when sets remaining) */}
-            {!isWarmup && workingSets.length < targetSets && (
-              <div className="flex justify-end">
+            {/* Set counter + mode toggle row */}
+            <div className="flex items-center justify-between">
+              {isWarmup ? (
+                <span className="text-xs font-bold text-yellow-400">Warm-up set</span>
+              ) : workingSets.length < targetSets ? (
+                <span className="text-xs font-bold text-zinc-400">
+                  Set <span className="text-white">{workingSets.length + 1}</span> of {targetSets}
+                </span>
+              ) : (
+                <span className="text-xs text-zinc-600">Bonus set</span>
+              )}
+              {!isWarmup && workingSets.length < targetSets && (
                 <button onClick={() => setQuickLog(q => !q)}
                   className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-colors ${quickLog ? 'border-orange-500/50 text-orange-400 bg-orange-500/10' : 'border-zinc-700 text-zinc-500 hover:text-zinc-300'}`}>
-                  {quickLog ? '← One set at a time' : `Log all ${targetSets - workingSets.length} sets at once`}
+                  {quickLog ? '← One at a time' : `All ${targetSets - workingSets.length} at once`}
                 </button>
-              </div>
-            )}
+              )}
+            </div>
 
             {quickLog && !isWarmup ? (
               <QuickLogPanel
@@ -801,10 +819,31 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
                   </div>
                 )}
 
+                {/* Note field */}
+                {noteOpen && (
+                  <input
+                    type="text"
+                    placeholder="Note: supinated, paused, close grip…"
+                    value={note}
+                    onChange={e => setNote(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleLog()}
+                    maxLength={60}
+                    autoFocus
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 placeholder:text-zinc-600"
+                  />
+                )}
+
                 <div className="flex gap-2">
                   <button onClick={() => setIsWarmup(w => !w)}
                     className={`flex-shrink-0 text-xs font-bold py-2.5 px-3 rounded-lg border transition-colors ${isWarmup ? 'border-yellow-500/50 text-yellow-400 bg-yellow-500/10' : 'border-zinc-700 text-zinc-500'}`}>
                     Warm-up
+                  </button>
+                  <button
+                    onClick={() => { setNoteOpen(o => !o); if (noteOpen) setNote(''); }}
+                    className={`flex-shrink-0 flex items-center justify-center py-2.5 px-3 rounded-lg border transition-colors ${noteOpen || note ? 'border-blue-500/50 text-blue-400 bg-blue-500/10' : 'border-zinc-700 text-zinc-600 hover:text-zinc-400'}`}
+                    title="Add a note to this set"
+                  >
+                    <MessageSquare size={14} />
                   </button>
                   <button onClick={handleLog} disabled={!weight || !reps}
                     className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-2.5 rounded-lg transition-colors active:scale-[0.98]">

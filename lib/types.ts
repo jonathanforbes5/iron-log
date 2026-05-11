@@ -62,6 +62,7 @@ export interface SetLog {
   reps: number;
   rpe?: number;
   isWarmup: boolean;
+  note?: string; // brief per-set note: "supinated", "paused", "close grip", etc.
 }
 
 export interface WorkoutLog {

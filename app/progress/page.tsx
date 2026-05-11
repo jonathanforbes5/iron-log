@@ -357,12 +357,17 @@ function HistoryList({ logs }: { logs: WorkoutLog[] }) {
                     </div>
                     <div className="space-y-1">
                       {exSets.map((set, i) => (
-                        <div key={set.id} className={`flex gap-3 text-xs ${set.isWarmup ? 'text-zinc-600' : 'text-zinc-400'}`}>
-                          <span className="w-4 text-right text-zinc-600">{set.isWarmup ? 'W' : i + 1 - exSets.filter((s, j) => s.isWarmup && j < i).length}</span>
-                          <span className="font-bold text-zinc-200">{set.weight} lbs</span>
-                          <span>× {set.reps}</span>
-                          {set.rpe && <span className="text-zinc-600">@ {set.rpe}</span>}
-                          <span className="ml-auto text-zinc-700">{calcE1RM(set.weight, set.reps)} e1RM</span>
+                        <div key={set.id} className={`text-xs ${set.isWarmup ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                          <div className="flex gap-3">
+                            <span className="w-4 text-right text-zinc-600">{set.isWarmup ? 'W' : i + 1 - exSets.filter((s, j) => s.isWarmup && j < i).length}</span>
+                            <span className="font-bold text-zinc-200">{set.weight} lbs</span>
+                            <span>× {set.reps}</span>
+                            {set.rpe && <span className="text-zinc-600">@ {set.rpe}</span>}
+                            <span className="ml-auto text-zinc-700">{calcE1RM(set.weight, set.reps)} e1RM</span>
+                          </div>
+                          {set.note && (
+                            <p className="pl-7 text-[10px] text-zinc-600 italic mt-0.5">— {set.note}</p>
+                          )}
                         </div>
                       ))}
                     </div>
