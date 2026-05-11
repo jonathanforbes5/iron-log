@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useActiveProgram, useLogs, useReadiness, useMesocycle, useProfile, useCardio, useAICoach, useSync } from '@/lib/store';
+import { useActiveProgram, useLogs, useReadiness, useMesocycle, useProfile, useCardio, useAICoach, useSync, useWeightLog } from '@/lib/store';
 import {
   formatDate, formatDateShort, getPreviousBest, todayISO, totalVolume,
   workingSetCount, getMesocyclePhase, getPhaseColor, getPhaseLabel, getPeakDate,
@@ -9,7 +9,8 @@ import {
 } from '@/lib/utils';
 import { getExerciseName } from '@/lib/exercises';
 import { AIAction } from '@/lib/types';
-import { Dumbbell, Trophy, ChevronRight, Zap, Moon, Activity, TrendingUp, Settings, Cloud, CloudOff, RefreshCw, Brain, CheckCircle2, X, AlertCircle, Loader2 } from 'lucide-react';
+import { Dumbbell, Trophy, ChevronRight, Zap, Moon, Activity, TrendingUp, Settings, Cloud, CloudOff, RefreshCw, Brain, CheckCircle2, X, AlertCircle, Loader2, Scale } from 'lucide-react';
+import { useState } from 'react';
 
 export default function Dashboard() {
   const { program, currentDay, currentDayIndex } = useActiveProgram();
@@ -20,6 +21,7 @@ export default function Dashboard() {
   const { cardioLogs } = useCardio();
   const { pendingAIActions, applyAction, dismiss } = useAICoach();
   const { syncing, syncError } = useSync();
+  const { weightLogs, todayWeight, logWeight } = useWeightLog();
 
   const today = todayISO();
   const streak = getStreak(logs);
@@ -130,6 +132,9 @@ export default function Dashboard() {
         </Link>
       </div>
 
+      {/* Weight + Readiness quick-log row */}
+      <WeightWidget weightLogs={weightLogs} todayWeight={todayWeight} logWeight={logWeight} />
+
       {/* Today's Workout */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
@@ -235,6 +240,100 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Weight Widget
+// ─────────────────────────────────────────────────────────────────────────────
+function WeightWidget({ weightLogs, todayWeight, logWeight }: {
+  weightLogs: { date: string; weight: number }[];
+  todayWeight: number | null;
+  logWeight: (log: { date: string; weight: number }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Trend: compare last 7 days avg vs prior 7
+  const sorted = [...weightLogs].sort((a, b) => a.date.localeCompare(b.date));
+  const recent = sorted.filter(l => l.date <= today).slice(-7);
+  const prior = sorted.filter(l => l.date < (recent[0]?.date ?? today)).slice(-7);
+  let trend: 'gaining' | 'losing' | 'stable' | null = null;
+  if (recent.length >= 3 && prior.length >= 3) {
+    const avgRecent = recent.reduce((s, l) => s + l.weight, 0) / recent.length;
+    const avgPrior = prior.reduce((s, l) => s + l.weight, 0) / prior.length;
+    const diff = avgRecent - avgPrior;
+    trend = diff > 0.5 ? 'gaining' : diff < -0.5 ? 'losing' : 'stable';
+  }
+
+  const trendLabel = trend === 'gaining' ? '↑ gaining' : trend === 'losing' ? '↓ losing' : trend === 'stable' ? '→ maintaining' : null;
+  const trendColor = trend === 'gaining' ? 'text-orange-400' : trend === 'losing' ? 'text-blue-400' : 'text-green-400';
+
+  function save() {
+    const w = parseFloat(val);
+    if (!w || w < 50 || w > 500) return;
+    logWeight({ date: today, weight: w });
+    setEditing(false);
+    setVal('');
+  }
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Scale size={14} className="text-green-400" />
+          <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Bodyweight</span>
+        </div>
+        {trendLabel && <span className={`text-xs font-bold ${trendColor}`}>{trendLabel}</span>}
+      </div>
+
+      {editing ? (
+        <div className="flex items-center gap-2 mt-3">
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="lbs"
+            value={val}
+            onChange={e => setVal(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && save()}
+            autoFocus
+            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+          />
+          <button onClick={save} className="bg-orange-500 text-white text-sm font-bold px-4 py-2 rounded-xl active:scale-95">Save</button>
+          <button onClick={() => { setEditing(false); setVal(''); }} className="text-zinc-500 text-sm px-2 py-2">✕</button>
+        </div>
+      ) : todayWeight ? (
+        <div className="flex items-center justify-between mt-2">
+          <div>
+            <span className="text-2xl font-black">{todayWeight}</span>
+            <span className="text-sm text-zinc-500 ml-1">lbs</span>
+          </div>
+          <button onClick={() => { setVal(String(todayWeight)); setEditing(true); }} className="text-xs text-zinc-500 hover:text-zinc-300">Edit</button>
+        </div>
+      ) : (
+        <button onClick={() => setEditing(true)} className="mt-3 w-full flex items-center justify-center gap-2 border border-dashed border-zinc-700 rounded-xl py-2.5 text-sm text-zinc-500 hover:border-zinc-500 hover:text-zinc-400 transition-colors">
+          + Log today's weight
+        </button>
+      )}
+
+      {recent.length > 1 && (
+        <div className="flex items-end gap-1 mt-3 h-8">
+          {recent.map((l, i) => {
+            const min = Math.min(...recent.map(r => r.weight));
+            const max = Math.max(...recent.map(r => r.weight));
+            const range = max - min || 1;
+            const pct = (l.weight - min) / range;
+            return (
+              <div key={i} title={`${l.date}: ${l.weight} lbs`}
+                className="flex-1 rounded-sm bg-green-500/40 hover:bg-green-500/70 transition-colors cursor-default"
+                style={{ height: `${Math.max(20, pct * 100)}%` }} />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

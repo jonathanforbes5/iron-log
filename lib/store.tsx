@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import {
   AppState, AppAction, Program, WorkoutLog, SetLog,
-  ActiveWorkout, UserProfile, ReadinessCheckin, CardioLog, WeeklyReview, Mesocycle, AIAction,
+  ActiveWorkout, UserProfile, ReadinessCheckin, CardioLog, WeeklyReview, Mesocycle, AIAction, DailySupplementLog, WeightLog,
 } from './types';
 import { applyAIAction } from './aiActions';
 
@@ -27,6 +27,8 @@ const defaultState: AppState = {
   readinessLogs: [],
   cardioLogs: [],
   weeklyReviews: [],
+  supplementLogs: [],
+  weightLogs: [],
   pendingAIActions: [],
   updatedAt: '',
 };
@@ -139,6 +141,30 @@ function reducer(state: AppState, action: AppAction): AppState {
         weeklyReviews: [
           action.review,
           ...state.weeklyReviews.filter(r => r.weekNumber !== action.review.weekNumber),
+        ],
+      });
+
+    case 'TOGGLE_SUPPLEMENT': {
+      const existing = state.supplementLogs.find(l => l.date === action.date);
+      const taken = existing?.taken ?? [];
+      const newTaken = taken.includes(action.supplementId)
+        ? taken.filter(id => id !== action.supplementId)
+        : [...taken, action.supplementId];
+      return withTimestamp({
+        ...state,
+        supplementLogs: [
+          { date: action.date, taken: newTaken },
+          ...(state.supplementLogs ?? []).filter(l => l.date !== action.date),
+        ],
+      });
+    }
+
+    case 'LOG_WEIGHT':
+      return withTimestamp({
+        ...state,
+        weightLogs: [
+          action.log,
+          ...(state.weightLogs ?? []).filter(l => l.date !== action.log.date),
         ],
       });
 
@@ -366,6 +392,26 @@ export function useSync() {
   return { syncing, syncError };
 }
 
+export function useSupplements() {
+  const { state, dispatch } = useStore();
+  const toggle = useCallback(
+    (date: string, supplementId: string) => dispatch({ type: 'TOGGLE_SUPPLEMENT', date, supplementId }),
+    [dispatch],
+  );
+  return { supplementLogs: state.supplementLogs ?? [], toggle };
+}
+
 export function useHydrated() {
   return useStore().hydrated;
+}
+
+export function useWeightLog() {
+  const { state, dispatch } = useStore();
+  const logWeight = useCallback(
+    (log: WeightLog) => dispatch({ type: 'LOG_WEIGHT', log }),
+    [dispatch],
+  );
+  const today = new Date().toISOString().slice(0, 10);
+  const todayWeight = (state.weightLogs ?? []).find(l => l.date === today)?.weight ?? null;
+  return { weightLogs: state.weightLogs ?? [], todayWeight, logWeight };
 }

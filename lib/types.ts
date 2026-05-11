@@ -135,6 +135,16 @@ export interface CardioLog {
   notes: string;
 }
 
+export interface DailySupplementLog {
+  date: string;
+  taken: string[]; // supplement IDs checked off that day
+}
+
+export interface WeightLog {
+  date: string;   // YYYY-MM-DD
+  weight: number; // lbs
+}
+
 export interface Mesocycle {
   startDate: string;
   totalWeeks: number;
@@ -178,6 +188,8 @@ export interface AppState {
   readinessLogs: ReadinessCheckin[];
   cardioLogs: CardioLog[];
   weeklyReviews: WeeklyReview[];
+  supplementLogs: DailySupplementLog[];
+  weightLogs: WeightLog[];
   pendingAIActions: AIAction[];
   updatedAt: string; // ISO timestamp for cross-device sync conflict resolution
 }
@@ -200,6 +212,8 @@ export type AppAction =
   | { type: 'ADD_READINESS'; checkin: ReadinessCheckin }
   | { type: 'ADD_CARDIO_LOG'; log: CardioLog }
   | { type: 'ADD_WEEKLY_REVIEW'; review: WeeklyReview }
+  | { type: 'TOGGLE_SUPPLEMENT'; date: string; supplementId: string }
+  | { type: 'LOG_WEIGHT'; log: WeightLog }
   | { type: 'ADD_AI_ACTIONS'; actions: AIAction[] }
   | { type: 'APPLY_AI_ACTION'; actionId: string }
   | { type: 'DISMISS_AI_ACTION'; actionId: string }

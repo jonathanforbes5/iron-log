@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useLogs } from '@/lib/store';
+import { useLogs, useWeightLog } from '@/lib/store';
 import { EXERCISES } from '@/lib/exercises';
 import { getProgressData, calcE1RM, formatDate, formatDateShort, getPreviousBest, totalVolume, workingSetCount, formatDuration } from '@/lib/utils';
 import { WorkoutLog } from '@/lib/types';
@@ -32,6 +32,7 @@ const MUSCLE_MEV: Record<string, { mev: number; mav: number; label: string }> = 
 
 export default function ProgressPage() {
   const logs = useLogs();
+  const { weightLogs } = useWeightLog();
   const [selectedExercise, setSelectedExercise] = useState('squat');
   const [view, setView] = useState<'charts' | 'history'>('charts');
 
@@ -45,11 +46,25 @@ export default function ProgressPage() {
   // Volume by week (last 8 weeks)
   const volumeByWeek = getWeeklyVolume(logs, 8);
 
-  // Bodyweight data from workout logs
-  const bwData = logs
-    .filter(l => l.bodyweight)
-    .map(l => ({ date: l.date, weight: l.bodyweight! }))
+  // Bodyweight data: dedicated weight logs + fallback from workout logs
+  const bwMap = new Map<string, number>();
+  logs.filter(l => l.bodyweight).forEach(l => bwMap.set(l.date, l.bodyweight!));
+  weightLogs.forEach(l => bwMap.set(l.date, l.weight)); // dedicated logs take priority
+  const bwData = Array.from(bwMap.entries())
+    .map(([date, weight]) => ({ date, weight }))
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Weight trend
+  const today = new Date().toISOString().slice(0, 10);
+  const recentBw = bwData.filter(l => l.date <= today).slice(-7);
+  const priorBw = bwData.filter(l => l.date < (recentBw[0]?.date ?? today)).slice(-7);
+  let bwTrend: string | null = null;
+  if (recentBw.length >= 3 && priorBw.length >= 3) {
+    const avgR = recentBw.reduce((s, l) => s + l.weight, 0) / recentBw.length;
+    const avgP = priorBw.reduce((s, l) => s + l.weight, 0) / priorBw.length;
+    const diff = avgR - avgP;
+    bwTrend = diff > 0.5 ? `↑ +${diff.toFixed(1)} lbs` : diff < -0.5 ? `↓ ${diff.toFixed(1)} lbs` : '→ stable';
+  }
 
   // Weekly sets per muscle group
   const weekStart = new Date();
@@ -226,7 +241,10 @@ export default function ProgressPage() {
       {/* Bodyweight Chart */}
       {bwData.length > 1 && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-          <h2 className="text-sm font-bold text-zinc-300 mb-4">Bodyweight (lbs)</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold text-zinc-300">Bodyweight (lbs)</h2>
+            {bwTrend && <span className="text-xs font-bold text-green-400">{bwTrend}</span>}
+          </div>
           <ResponsiveContainer width="100%" height={160}>
             <LineChart data={bwData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
