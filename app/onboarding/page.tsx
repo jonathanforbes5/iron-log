@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useProfile, usePrograms } from '@/lib/store';
-import { UserProfile, ExperienceLevel, Goal } from '@/lib/types';
+import { useProfile, usePrograms, useStore } from '@/lib/store';
+import { UserProfile, ExperienceLevel, Goal, AppState } from '@/lib/types';
 import { PROGRAM_TEMPLATES } from '@/lib/templates';
 import { uid } from '@/lib/utils';
 import { generateOnboardingInsights } from '@/lib/ai';
-import { ChevronRight, ChevronLeft, Dumbbell, Zap, Target, Loader2 } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Dumbbell, Zap, Target, Loader2, Upload, CheckCircle2 } from 'lucide-react';
 
 const STEPS = ['Profile', 'Max Lifts', 'Program', 'Ready'];
 
@@ -22,6 +22,33 @@ export default function OnboardingPage() {
   const router = useRouter();
   const { setProfile } = useProfile();
   const { addProgram, setActive } = usePrograms();
+  const { dispatch } = useStore();
+
+  // Restore from backup
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [restoreError, setRestoreError] = useState('');
+  const [restoreSuccess, setRestoreSuccess] = useState(false);
+
+  function handleRestoreFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string) as AppState;
+        if (!data.userProfile?.onboardingComplete) {
+          setRestoreError('This backup file does not contain a completed profile.');
+          return;
+        }
+        dispatch({ type: 'LOAD_STATE', state: data });
+        setRestoreSuccess(true);
+        setTimeout(() => router.replace('/'), 800);
+      } catch {
+        setRestoreError('Could not read the file. Make sure it is a valid Iron Log backup.');
+      }
+    };
+    reader.readAsText(file);
+  }
 
   const [step, setStep] = useState(0);
   const [aiInsight, setAiInsight] = useState('');
@@ -105,6 +132,29 @@ export default function OnboardingPage() {
         <div className="flex items-center gap-2 mb-8">
           <Dumbbell size={24} className="text-orange-500" />
           <span className="text-xl font-black tracking-tight">Iron Log</span>
+        </div>
+
+        {/* Restore from backup — escape hatch for existing users on a new device */}
+        <div className="mb-6 bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          {restoreSuccess ? (
+            <div className="flex items-center gap-2 text-green-400">
+              <CheckCircle2 size={18} />
+              <span className="text-sm font-bold">Restored! Loading your data…</span>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1">Already have data?</p>
+              <p className="text-xs text-zinc-500 mb-3">If you exported a backup from your phone, import it here to restore everything instantly.</p>
+              <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleRestoreFile} />
+              <button
+                onClick={() => { setRestoreError(''); fileRef.current?.click(); }}
+                className="w-full flex items-center justify-center gap-2 border border-dashed border-zinc-700 hover:border-orange-500/50 text-zinc-400 hover:text-orange-400 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+              >
+                <Upload size={14} /> Import backup file
+              </button>
+              {restoreError && <p className="text-xs text-red-400 mt-2 text-center">{restoreError}</p>}
+            </>
+          )}
         </div>
 
         {/* Step dots */}

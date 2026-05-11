@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useProfile, useSettings, useSync, useMesocycle } from '@/lib/store';
+import { useProfile, useSettings, useSync, useMesocycle, useStore } from '@/lib/store';
 import { ExperienceLevel, Goal } from '@/lib/types';
-import { ChevronLeft, Save, Cloud, CloudOff, Key, Dumbbell, User, RefreshCw, Calendar, LogOut } from 'lucide-react';
+import { ChevronLeft, Save, Cloud, CloudOff, Key, Dumbbell, User, RefreshCw, Calendar, LogOut, Download } from 'lucide-react';
 
 const MAIN_LIFTS = [
   { id: 'squat',    label: 'Back Squat' },
@@ -21,6 +21,7 @@ export default function SettingsPage() {
   const { settings, updateSettings } = useSettings();
   const { mesocycle, updateMesocycle } = useMesocycle();
   const { syncing, syncError } = useSync();
+  const { state } = useStore();
 
   const [saved, setSaved] = useState(false);
 
@@ -251,6 +252,24 @@ export default function SettingsPage() {
         className={`w-full font-bold py-4 rounded-2xl transition-all text-lg flex items-center justify-center gap-2 ${saved ? 'bg-green-500 text-white' : 'bg-orange-500 hover:bg-orange-600 text-white'}`}>
         <Save size={18} />
         {saved ? 'Saved!' : 'Save Changes'}
+      </button>
+
+      {/* Export data — download full state as JSON for manual transfer */}
+      <button
+        onClick={() => {
+          const json = JSON.stringify(state, null, 2);
+          const blob = new Blob([json], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `ironlog-backup-${new Date().toISOString().slice(0,10)}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-zinc-800 text-zinc-500 hover:text-green-400 hover:border-green-500/30 transition-colors text-sm"
+      >
+        <Download size={14} />
+        Export data (for other devices)
       </button>
 
       {/* Pull from cloud — wipes local state and reloads from KV */}
