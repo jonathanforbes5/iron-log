@@ -189,6 +189,7 @@ interface StoreContextValue {
   dispatch: React.Dispatch<AppAction>;
   syncing: boolean;
   syncError: boolean;
+  hydrated: boolean;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -199,8 +200,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [syncing, setSyncing] = React.useState(false);
   const [syncError, setSyncError] = React.useState(false);
+  const [hydrated, setHydrated] = React.useState(false);
 
-  // Mount: load localStorage then fetch from KV (prefer newer by updatedAt)
+  // Mount: load localStorage synchronously, then reconcile with KV
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
@@ -211,6 +213,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (raw) localState = { ...defaultState, ...JSON.parse(raw) as AppState };
     } catch { /* ignore */ }
 
+    // Load local state immediately so the gate knows the real profile
+    if (localState) dispatch({ type: 'LOAD_STATE', state: localState });
+    setHydrated(true); // gate can now decide redirect vs. render
+
     async function fetchKV() {
       try {
         setSyncing(true);
@@ -220,12 +226,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const localNewer = localState && localState.updatedAt > (kvState.updatedAt ?? '');
           const merged = localNewer ? localState! : { ...defaultState, ...kvState };
           dispatch({ type: 'LOAD_STATE', state: merged });
-        } else if (localState) {
-          dispatch({ type: 'LOAD_STATE', state: localState });
         }
         setSyncError(false);
       } catch {
-        if (localState) dispatch({ type: 'LOAD_STATE', state: localState });
         setSyncError(true);
       } finally {
         setSyncing(false);
@@ -259,7 +262,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [state]);
 
   return (
-    <StoreContext.Provider value={{ state, dispatch, syncing, syncError }}>
+    <StoreContext.Provider value={{ state, dispatch, syncing, syncError, hydrated }}>
       {children}
     </StoreContext.Provider>
   );
@@ -361,4 +364,8 @@ export function useAICoach() {
 export function useSync() {
   const { syncing, syncError } = useStore();
   return { syncing, syncError };
+}
+
+export function useHydrated() {
+  return useStore().hydrated;
 }

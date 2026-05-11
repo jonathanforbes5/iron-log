@@ -290,6 +290,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
   const [elapsed, setElapsed] = useState(0);
   const [restTick, setRestTick] = useState<number | null>(null);
   const [finishModal, setFinishModal] = useState(false);
+  const [discardConfirm, setDiscardConfirm] = useState(false);
   const [extraExercises, setExtraExercises] = useState<ProgramExercise[]>([]);
 
   useEffect(() => {
@@ -343,14 +344,34 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
             <p className="text-xs text-zinc-500">In Progress</p>
             <h1 className="font-black">{workout.dayName}</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <span className="text-sm font-mono text-zinc-400">
               {String(elapsedMin).padStart(2,'0')}:{String(elapsedSec).padStart(2,'0')}
             </span>
-            <button onClick={() => setFinishModal(true)}
-              className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold py-2 px-3 rounded-lg transition-colors">
-              Finish
-            </button>
+            {discardConfirm ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-red-400">Discard?</span>
+                <button onClick={() => { setDiscardConfirm(false); onCancel(); }}
+                  className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2 px-2.5 rounded-lg transition-colors">
+                  Yes
+                </button>
+                <button onClick={() => setDiscardConfirm(false)}
+                  className="bg-zinc-700 text-zinc-300 text-xs font-bold py-2 px-2.5 rounded-lg transition-colors">
+                  No
+                </button>
+              </div>
+            ) : (
+              <>
+                <button onClick={() => setDiscardConfirm(true)}
+                  className="border border-zinc-700 text-zinc-500 hover:text-red-400 hover:border-red-500/40 text-xs font-bold py-2 px-2.5 rounded-lg transition-colors">
+                  Discard
+                </button>
+                <button onClick={() => setFinishModal(true)}
+                  className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold py-2 px-3 rounded-lg transition-colors">
+                  Finish
+                </button>
+              </>
+            )}
           </div>
         </div>
         {restTick !== null && restTick >= 0 && (
@@ -432,7 +453,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
             onFinish(log);
           }}
           onCancel={() => setFinishModal(false)}
-          onAbandon={() => { if (confirm('Discard this workout?')) onCancel(); }}
+          onAbandon={() => { setFinishModal(false); onCancel(); }}
         />
       )}
     </div>
@@ -942,58 +963,65 @@ function FinishModal({ workout, elapsed, onConfirm, onCancel, onAbandon }: {
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-end">
-      <div className="w-full max-w-lg mx-auto bg-zinc-900 border-t border-zinc-700 rounded-t-3xl p-6 space-y-5">
-        <div className="w-10 h-1 bg-zinc-700 rounded-full mx-auto -mt-2" />
-        <h2 className="text-xl font-black text-center">Finish Workout</h2>
-
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Duration', value: formatDuration(Math.floor(elapsed/60)) },
-            { label: 'Exercises', value: String(exercises.length) },
-            { label: 'Sets', value: String(workingSets.length) },
-          ].map(({ label, value }) => (
-            <div key={label} className="bg-zinc-800 rounded-xl p-3 text-center">
-              <p className="text-lg font-black">{value}</p>
-              <p className="text-[10px] text-zinc-500 mt-0.5">{label}</p>
-            </div>
-          ))}
+      <div className="w-full max-w-lg mx-auto bg-zinc-900 border-t border-zinc-700 rounded-t-3xl flex flex-col" style={{ maxHeight: '90dvh' }}>
+        {/* Drag handle + title */}
+        <div className="flex-shrink-0 px-6 pt-4 pb-3 border-b border-zinc-800">
+          <div className="w-10 h-1 bg-zinc-700 rounded-full mx-auto mb-4" />
+          <h2 className="text-xl font-black text-center">Finish Workout</h2>
         </div>
 
-        <div>
-          <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Session Rating</p>
-          <div className="flex gap-2 justify-center">
-            {([1,2,3,4,5] as const).map(r => (
-              <button key={r} onClick={() => setRating(r)}
-                className={`text-3xl transition-all active:scale-90 ${r <= rating ? 'text-orange-500' : 'text-zinc-700'}`}>★</button>
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Duration', value: formatDuration(Math.floor(elapsed/60)) },
+              { label: 'Exercises', value: String(exercises.length) },
+              { label: 'Sets', value: String(workingSets.length) },
+            ].map(({ label, value }) => (
+              <div key={label} className="bg-zinc-800 rounded-xl p-3 text-center">
+                <p className="text-lg font-black">{value}</p>
+                <p className="text-[10px] text-zinc-500 mt-0.5">{label}</p>
+              </div>
             ))}
           </div>
-        </div>
 
-        <div className="grid grid-cols-2 gap-3">
           <div>
-            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Bodyweight</p>
-            <input type="number" placeholder="lbs" value={bw} onChange={e => setBw(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-500 no-spin" />
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Session Rating</p>
+            <div className="flex gap-1 justify-center">
+              {([1,2,3,4,5] as const).map(r => (
+                <button key={r} onClick={() => setRating(r)}
+                  className={`text-4xl transition-all active:scale-90 ${r <= rating ? 'text-orange-500' : 'text-zinc-700'}`}>★</button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Bodyweight (lbs)</p>
+            <input type="number" placeholder="optional" value={bw} onChange={e => setBw(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 no-spin" />
+          </div>
+
+          <div>
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Notes</p>
+            <textarea placeholder="PRs, how it felt, what to change..." value={notes}
+              onChange={e => setNotes(e.target.value)} rows={3}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 resize-none" />
           </div>
         </div>
 
-        <div>
-          <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Notes</p>
-          <textarea placeholder="PRs, how it felt, what to change..." value={notes}
-            onChange={e => setNotes(e.target.value)} rows={2}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-500 resize-none" />
-        </div>
-
-        <div className="flex gap-3">
-          <button onClick={onAbandon} className="flex-shrink-0 border border-red-900/50 text-red-400 hover:bg-red-900/20 text-sm font-bold py-3 px-4 rounded-xl transition-colors">
-            Discard
-          </button>
-          <button onClick={onCancel} className="flex-1 border border-zinc-700 text-zinc-400 font-bold py-3 rounded-xl hover:bg-zinc-800 transition-colors">
-            Keep Going
-          </button>
-          <button onClick={() => onConfirm(rating, notes, bw)}
-            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition-colors">
-            Save
+        {/* Sticky action buttons */}
+        <div className="flex-shrink-0 px-6 pt-3 pb-6 border-t border-zinc-800 space-y-2">
+          <div className="flex gap-2">
+            <button onClick={onCancel} className="flex-1 border border-zinc-700 text-zinc-400 font-bold py-3.5 rounded-xl hover:bg-zinc-800 transition-colors text-sm">
+              Keep Going
+            </button>
+            <button onClick={() => onConfirm(rating, notes, bw)}
+              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-3.5 rounded-xl transition-colors text-sm">
+              Save Workout
+            </button>
+          </div>
+          <button onClick={onAbandon} className="w-full text-red-400/70 hover:text-red-400 text-sm font-semibold py-2 transition-colors">
+            Discard without saving
           </button>
         </div>
       </div>
