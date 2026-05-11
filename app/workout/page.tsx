@@ -1,14 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio } from '@/lib/store';
+import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach } from '@/lib/store';
 import { ActiveWorkout, ProgramExercise, SetLog, CardioLog } from '@/lib/types';
 import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES } from '@/lib/exercises';
 import {
   calcE1RM, getLastPerformance, uid, rpeColor, formatDuration,
   getSuggestedWeightRange, totalVolume, workingSetCount,
 } from '@/lib/utils';
-import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity } from 'lucide-react';
+import { getAdvancedCoachingAnalysis } from '@/lib/ai';
+import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity, Brain } from 'lucide-react';
 import Link from 'next/link';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,10 +21,75 @@ export default function WorkoutPage() {
   const logs = useLogs();
   const { profile } = useProfile();
   const { addCardio } = useCardio();
+  const { addActions } = useAICoach();
   const [showCardio, setShowCardio] = useState(false);
+  const [finishedLog, setFinishedLog] = useState<import('@/lib/types').WorkoutLog | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
 
   function handleStart(dayName: string, plannedExercises: ProgramExercise[]) {
     startWorkout({ startTime: new Date().toISOString(), programId: program?.id, dayName, plannedExercises, sets: [], swaps: {} });
+  }
+
+  async function handleFinishWorkout(log: import('@/lib/types').WorkoutLog) {
+    finishWorkout(log);
+    setFinishedLog(log);
+    if (profile?.claudeApiKey) {
+      setAiLoading(true);
+      try {
+        const { analysis, actions } = await getAdvancedCoachingAnalysis(
+          log, logs.slice(0, 8), profile, program ?? null, profile.claudeApiKey,
+        );
+        if (analysis) setAiAnalysis(analysis);
+        if (actions.length) addActions(actions);
+      } catch { /* silent */ }
+      setAiLoading(false);
+    }
+  }
+
+  // Post-workout completion screen
+  if (finishedLog) {
+    const workingSets = finishedLog.sets.filter(s => !s.isWarmup).length;
+    return (
+      <div className="px-4 pt-8 pb-10 space-y-5">
+        <div className="text-center space-y-2">
+          <div className="w-16 h-16 bg-green-500/20 border border-green-500/30 rounded-2xl flex items-center justify-center mx-auto">
+            <Check size={28} className="text-green-400" />
+          </div>
+          <h1 className="text-2xl font-black">{finishedLog.dayName} Done</h1>
+          <div className="flex justify-center gap-4 text-sm text-zinc-500">
+            <span>{workingSets} sets</span>
+            <span>·</span>
+            <span>{finishedLog.durationMinutes ?? 0} min</span>
+          </div>
+        </div>
+
+        {aiLoading && (
+          <div className="flex items-center gap-2 justify-center text-zinc-500">
+            <Brain size={14} className="text-orange-400 animate-pulse" />
+            <span className="text-sm">AI analyzing your session…</span>
+          </div>
+        )}
+
+        {aiAnalysis && (
+          <div className="bg-zinc-900 border border-orange-500/25 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Brain size={13} className="text-orange-400" />
+              <span className="text-xs font-bold text-orange-400 uppercase tracking-wider">AI Coach</span>
+            </div>
+            <p className="text-sm text-zinc-300 leading-relaxed">{aiAnalysis}</p>
+            {!aiLoading && (
+              <p className="text-[11px] text-zinc-600 mt-2">Any adjustments from the AI are in Coach&apos;s Corner on the dashboard.</p>
+            )}
+          </div>
+        )}
+
+        <button onClick={() => { setFinishedLog(null); setAiAnalysis(''); }}
+          className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-2xl transition-colors text-lg">
+          Back to Dashboard
+        </button>
+      </div>
+    );
   }
 
   if (activeWorkout) {
@@ -35,7 +101,7 @@ export default function WorkoutPage() {
         onLogSet={logSet}
         onRemoveSet={removeSet}
         onSwap={swapExercise}
-        onFinish={finishWorkout}
+        onFinish={handleFinishWorkout}
         onCancel={cancelWorkout}
       />
     );

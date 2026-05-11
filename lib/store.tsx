@@ -1,10 +1,11 @@
 'use client';
 
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import {
   AppState, AppAction, Program, WorkoutLog, SetLog,
-  ActiveWorkout, UserProfile, ReadinessCheckin, CardioLog, WeeklyReview, Mesocycle,
+  ActiveWorkout, UserProfile, ReadinessCheckin, CardioLog, WeeklyReview, Mesocycle, AIAction,
 } from './types';
+import { applyAIAction } from './aiActions';
 
 const STORAGE_KEY = 'ironlog_v2';
 
@@ -26,7 +27,13 @@ const defaultState: AppState = {
   readinessLogs: [],
   cardioLogs: [],
   weeklyReviews: [],
+  pendingAIActions: [],
+  updatedAt: '',
 };
+
+function withTimestamp(state: AppState): AppState {
+  return { ...state, updatedAt: new Date().toISOString() };
+}
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
@@ -34,16 +41,16 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...defaultState, ...action.state };
 
     case 'ADD_PROGRAM':
-      return { ...state, programs: [...state.programs, action.program] };
+      return withTimestamp({ ...state, programs: [...state.programs, action.program] });
 
     case 'DELETE_PROGRAM': {
       const programs = state.programs.filter(p => p.id !== action.id);
       const activeProgramId = state.activeProgramId === action.id ? null : state.activeProgramId;
-      return { ...state, programs, activeProgramId };
+      return withTimestamp({ ...state, programs, activeProgramId });
     }
 
     case 'SET_ACTIVE_PROGRAM':
-      return { ...state, activeProgramId: action.id, currentDayIndex: 0 };
+      return withTimestamp({ ...state, activeProgramId: action.id, currentDayIndex: 0 });
 
     case 'START_WORKOUT':
       return { ...state, activeWorkout: action.workout };
@@ -82,12 +89,12 @@ function reducer(state: AppState, action: AppAction): AppState {
       const nextDayIndex = program
         ? (state.currentDayIndex + 1) % program.days.length
         : state.currentDayIndex;
-      return {
+      return withTimestamp({
         ...state,
         activeWorkout: null,
         currentDayIndex: nextDayIndex,
         workoutLogs: [action.log, ...state.workoutLogs],
-      };
+      });
     }
 
     case 'CANCEL_WORKOUT':
@@ -98,38 +105,79 @@ function reducer(state: AppState, action: AppAction): AppState {
         ? state.programs.find(p => p.id === state.activeProgramId)
         : null;
       if (!program) return state;
-      return { ...state, currentDayIndex: (state.currentDayIndex + 1) % program.days.length };
+      return withTimestamp({ ...state, currentDayIndex: (state.currentDayIndex + 1) % program.days.length });
     }
 
     case 'UPDATE_SETTINGS':
-      return { ...state, settings: { ...state.settings, ...action.settings } };
+      return withTimestamp({ ...state, settings: { ...state.settings, ...action.settings } });
 
     case 'SET_PROFILE':
-      return { ...state, userProfile: action.profile };
+      return withTimestamp({ ...state, userProfile: action.profile });
+
+    case 'UPDATE_PROFILE':
+      if (!state.userProfile) return state;
+      return withTimestamp({ ...state, userProfile: { ...state.userProfile, ...action.updates } });
 
     case 'UPDATE_MESOCYCLE':
-      return { ...state, mesocycle: { ...state.mesocycle, ...action.mesocycle } };
+      return withTimestamp({ ...state, mesocycle: { ...state.mesocycle, ...action.mesocycle } });
 
     case 'ADD_READINESS':
-      return {
+      return withTimestamp({
         ...state,
         readinessLogs: [
           action.checkin,
           ...state.readinessLogs.filter(r => r.date !== action.checkin.date),
         ],
-      };
+      });
 
     case 'ADD_CARDIO_LOG':
-      return { ...state, cardioLogs: [action.log, ...state.cardioLogs] };
+      return withTimestamp({ ...state, cardioLogs: [action.log, ...state.cardioLogs] });
 
     case 'ADD_WEEKLY_REVIEW':
-      return {
+      return withTimestamp({
         ...state,
         weeklyReviews: [
           action.review,
           ...state.weeklyReviews.filter(r => r.weekNumber !== action.review.weekNumber),
         ],
-      };
+      });
+
+    case 'ADD_AI_ACTIONS': {
+      // Auto-apply actions with autoApply=true immediately
+      let nextState = state;
+      const pending: AIAction[] = [];
+
+      for (const a of action.actions) {
+        if (a.autoApply) {
+          const updates = applyAIAction(nextState, a);
+          nextState = { ...nextState, ...updates };
+        } else {
+          pending.push(a);
+        }
+      }
+
+      return withTimestamp({
+        ...nextState,
+        pendingAIActions: [...nextState.pendingAIActions, ...pending],
+      });
+    }
+
+    case 'APPLY_AI_ACTION': {
+      const target = state.pendingAIActions.find(a => a.id === action.actionId);
+      if (!target) return state;
+      const updates = applyAIAction(state, target);
+      return withTimestamp({
+        ...state,
+        ...updates,
+        pendingAIActions: state.pendingAIActions.filter(a => a.id !== action.actionId),
+      });
+    }
+
+    case 'DISMISS_AI_ACTION':
+      return withTimestamp({
+        ...state,
+        pendingAIActions: state.pendingAIActions.filter(a => a.id !== action.actionId),
+      });
 
     default:
       return state;
@@ -139,32 +187,82 @@ function reducer(state: AppState, action: AppAction): AppState {
 interface StoreContextValue {
   state: AppState;
   dispatch: React.Dispatch<AppAction>;
+  syncing: boolean;
+  syncError: boolean;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, defaultState);
-  const initialized = React.useRef(false);
+  const initialized = useRef(false);
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [syncing, setSyncing] = React.useState(false);
+  const [syncError, setSyncError] = React.useState(false);
 
+  // Mount: load localStorage then fetch from KV (prefer newer by updatedAt)
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
+
+    let localState: AppState | null = null;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as AppState;
-        dispatch({ type: 'LOAD_STATE', state: { ...defaultState, ...parsed } });
-      }
+      if (raw) localState = { ...defaultState, ...JSON.parse(raw) as AppState };
     } catch { /* ignore */ }
+
+    async function fetchKV() {
+      try {
+        setSyncing(true);
+        const res = await fetch('/api/sync');
+        const { state: kvState } = await res.json() as { state: AppState | null };
+        if (kvState) {
+          const localNewer = localState && localState.updatedAt > (kvState.updatedAt ?? '');
+          const merged = localNewer ? localState! : { ...defaultState, ...kvState };
+          dispatch({ type: 'LOAD_STATE', state: merged });
+        } else if (localState) {
+          dispatch({ type: 'LOAD_STATE', state: localState });
+        }
+        setSyncError(false);
+      } catch {
+        if (localState) dispatch({ type: 'LOAD_STATE', state: localState });
+        setSyncError(true);
+      } finally {
+        setSyncing(false);
+      }
+    }
+
+    fetchKV();
   }, []);
 
+  // On state change: save to localStorage + debounced push to KV
   useEffect(() => {
-    if (!initialized.current) return;
+    if (!initialized.current || !state.updatedAt) return;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(async () => {
+      try {
+        setSyncing(true);
+        await fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state }),
+        });
+        setSyncError(false);
+      } catch {
+        setSyncError(true);
+      } finally {
+        setSyncing(false);
+      }
+    }, 2000);
   }, [state]);
 
-  return <StoreContext.Provider value={{ state, dispatch }}>{children}</StoreContext.Provider>;
+  return (
+    <StoreContext.Provider value={{ state, dispatch, syncing, syncError }}>
+      {children}
+    </StoreContext.Provider>
+  );
 }
 
 export function useStore() {
@@ -178,14 +276,15 @@ export function useStore() {
 export function useProfile() {
   const { state, dispatch } = useStore();
   const setProfile = useCallback((profile: UserProfile) => dispatch({ type: 'SET_PROFILE', profile }), [dispatch]);
-  return { profile: state.userProfile, setProfile };
+  const updateProfile = useCallback((updates: Partial<UserProfile>) => dispatch({ type: 'UPDATE_PROFILE', updates }), [dispatch]);
+  return { profile: state.userProfile, setProfile, updateProfile };
 }
 
 export function usePrograms() {
   const { state, dispatch } = useStore();
-  const addProgram   = useCallback((program: Program) => dispatch({ type: 'ADD_PROGRAM', program }), [dispatch]);
+  const addProgram    = useCallback((program: Program) => dispatch({ type: 'ADD_PROGRAM', program }), [dispatch]);
   const deleteProgram = useCallback((id: string) => dispatch({ type: 'DELETE_PROGRAM', id }), [dispatch]);
-  const setActive    = useCallback((id: string | null) => dispatch({ type: 'SET_ACTIVE_PROGRAM', id }), [dispatch]);
+  const setActive     = useCallback((id: string | null) => dispatch({ type: 'SET_ACTIVE_PROGRAM', id }), [dispatch]);
   return { programs: state.programs, activeProgramId: state.activeProgramId, addProgram, deleteProgram, setActive };
 }
 
@@ -200,12 +299,12 @@ export function useWorkout() {
   const { state, dispatch } = useStore();
   return {
     activeWorkout: state.activeWorkout,
-    startWorkout:   useCallback((w: ActiveWorkout) => dispatch({ type: 'START_WORKOUT', workout: w }), [dispatch]),
-    logSet:         useCallback((s: SetLog) => dispatch({ type: 'LOG_SET', set: s }), [dispatch]),
-    removeSet:      useCallback((id: string) => dispatch({ type: 'REMOVE_SET', setId: id }), [dispatch]),
-    swapExercise:   useCallback((orig: string, rep: string) => dispatch({ type: 'SWAP_EXERCISE', originalId: orig, replacementId: rep }), [dispatch]),
-    finishWorkout:  useCallback((log: WorkoutLog) => dispatch({ type: 'FINISH_WORKOUT', log }), [dispatch]),
-    cancelWorkout:  useCallback(() => dispatch({ type: 'CANCEL_WORKOUT' }), [dispatch]),
+    startWorkout:  useCallback((w: ActiveWorkout) => dispatch({ type: 'START_WORKOUT', workout: w }), [dispatch]),
+    logSet:        useCallback((s: SetLog) => dispatch({ type: 'LOG_SET', set: s }), [dispatch]),
+    removeSet:     useCallback((id: string) => dispatch({ type: 'REMOVE_SET', setId: id }), [dispatch]),
+    swapExercise:  useCallback((orig: string, rep: string) => dispatch({ type: 'SWAP_EXERCISE', originalId: orig, replacementId: rep }), [dispatch]),
+    finishWorkout: useCallback((log: WorkoutLog) => dispatch({ type: 'FINISH_WORKOUT', log }), [dispatch]),
+    cancelWorkout: useCallback(() => dispatch({ type: 'CANCEL_WORKOUT' }), [dispatch]),
   };
 }
 
@@ -243,7 +342,23 @@ export function useSettings() {
   const { state, dispatch } = useStore();
   const updateSettings = useCallback(
     (s: Partial<AppState['settings']>) => dispatch({ type: 'UPDATE_SETTINGS', settings: s }),
-    [dispatch]
+    [dispatch],
   );
   return { settings: state.settings, updateSettings };
+}
+
+export function useAICoach() {
+  const { state, dispatch } = useStore();
+  const addActions  = useCallback((actions: AIAction[]) => dispatch({ type: 'ADD_AI_ACTIONS', actions }), [dispatch]);
+  const applyAction = useCallback((id: string) => dispatch({ type: 'APPLY_AI_ACTION', actionId: id }), [dispatch]);
+  const dismiss     = useCallback((id: string) => dispatch({ type: 'DISMISS_AI_ACTION', actionId: id }), [dispatch]);
+  return {
+    pendingAIActions: state.pendingAIActions,
+    addActions, applyAction, dismiss,
+  };
+}
+
+export function useSync() {
+  const { syncing, syncError } = useStore();
+  return { syncing, syncError };
 }

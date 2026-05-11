@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useWeeklyReview, useLogs, useProfile, useMesocycle } from '@/lib/store';
+import { useWeeklyReview, useLogs, useProfile, useMesocycle, useAICoach } from '@/lib/store';
 import { WeeklyReview } from '@/lib/types';
 import { uid, totalVolume, workingSetCount, formatDate } from '@/lib/utils';
 import { getWeeklyReviewAnalysis } from '@/lib/ai';
@@ -22,6 +22,7 @@ export default function WeeklyReviewPage() {
   const logs = useLogs();
   const { profile } = useProfile();
   const { mesocycle, updateMesocycle } = useMesocycle();
+  const { addActions } = useAICoach();
 
   const [ratings, setRatings] = useState<Record<string, 1|2|3|4|5>>({
     overallRating: 3, strengthFeel: 3, recoveryFeel: 3, motivation: 3, jointHealth: 3,
@@ -63,9 +64,10 @@ export default function WeeklyReviewPage() {
     if (profile?.claudeApiKey) {
       setAiLoading(true);
       try {
-        const analysis = await getWeeklyReviewAnalysis(review, weekLogs, profile, profile.claudeApiKey);
+        const { analysis, actions } = await getWeeklyReviewAnalysis(review, weekLogs, profile, profile.claudeApiKey);
         review.aiAnalysis = analysis;
         setAiAnalysis(analysis);
+        if (actions.length) addActions(actions);
       } catch { /* no key or error */ }
       setAiLoading(false);
     }

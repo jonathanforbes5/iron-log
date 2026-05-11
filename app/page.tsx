@@ -1,14 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useActiveProgram, useLogs, useReadiness, useMesocycle, useProfile, useCardio } from '@/lib/store';
+import { useActiveProgram, useLogs, useReadiness, useMesocycle, useProfile, useCardio, useAICoach, useSync } from '@/lib/store';
 import {
   formatDate, formatDateShort, getPreviousBest, todayISO, totalVolume,
   workingSetCount, getMesocyclePhase, getPhaseColor, getPhaseLabel, getPeakDate,
   overallReadinessScore,
 } from '@/lib/utils';
 import { getExerciseName } from '@/lib/exercises';
-import { Dumbbell, Trophy, ChevronRight, Zap, Moon, Activity, ClipboardCheck, TrendingUp } from 'lucide-react';
+import { AIAction } from '@/lib/types';
+import { Dumbbell, Trophy, ChevronRight, Zap, Moon, Activity, TrendingUp, Settings, Cloud, CloudOff, RefreshCw, Brain, CheckCircle2, X, AlertCircle, Loader2 } from 'lucide-react';
 
 export default function Dashboard() {
   const { program, currentDay, currentDayIndex } = useActiveProgram();
@@ -17,6 +18,8 @@ export default function Dashboard() {
   const { mesocycle } = useMesocycle();
   const { profile } = useProfile();
   const { cardioLogs } = useCardio();
+  const { pendingAIActions, applyAction, dismiss } = useAICoach();
+  const { syncing, syncError } = useSync();
 
   const today = todayISO();
   const phase = getMesocyclePhase(mesocycle.currentWeek, mesocycle.totalWeeks);
@@ -52,14 +55,30 @@ export default function Dashboard() {
             {getGreeting()}{profile?.name ? `, ${profile.name.split(' ')[0]}` : ''}
           </h1>
         </div>
-        <Link href="/readiness"
-          className={`flex flex-col items-center px-3 py-2 rounded-xl border transition-colors ${todayLog ? 'bg-green-500/10 border-green-500/30' : 'bg-zinc-900 border-zinc-700 hover:border-orange-500/50'}`}>
-          <Moon size={16} className={todayLog ? 'text-green-400' : 'text-zinc-500'} />
-          <span className="text-[10px] mt-0.5 font-bold text-zinc-500">
-            {readinessScore !== null ? `${readinessScore}%` : 'Check-in'}
-          </span>
-        </Link>
+        <div className="flex items-center gap-2">
+          {/* Sync indicator */}
+          <div title={syncError ? 'Sync unavailable — using local storage' : syncing ? 'Syncing…' : 'All devices in sync'}>
+            {syncing ? <Loader2 size={12} className="text-zinc-600 animate-spin" />
+              : syncError ? <CloudOff size={12} className="text-zinc-600" />
+              : <Cloud size={12} className="text-green-500/60" />}
+          </div>
+          <Link href="/settings" className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors">
+            <Settings size={16} className="text-zinc-500" />
+          </Link>
+          <Link href="/readiness"
+            className={`flex flex-col items-center px-3 py-2 rounded-xl border transition-colors ${todayLog ? 'bg-green-500/10 border-green-500/30' : 'bg-zinc-900 border-zinc-700 hover:border-orange-500/50'}`}>
+            <Moon size={16} className={todayLog ? 'text-green-400' : 'text-zinc-500'} />
+            <span className="text-[10px] mt-0.5 font-bold text-zinc-500">
+              {readinessScore !== null ? `${readinessScore}%` : 'Check-in'}
+            </span>
+          </Link>
+        </div>
       </div>
+
+      {/* Coach's Corner — pending AI actions */}
+      {pendingAIActions.length > 0 && (
+        <CoachsCorner actions={pendingAIActions} onApply={applyAction} onDismiss={dismiss} />
+      )}
 
       {/* Mesocycle Phase Banner */}
       <div className="rounded-2xl overflow-hidden" style={{ background: `linear-gradient(135deg, ${phaseColor}22, ${phaseColor}11)`, borderColor: `${phaseColor}44`, borderWidth: 1 }}>
@@ -327,6 +346,56 @@ function MesocycleCalendar({ logs, cardioLogs, mesocycle, today }: {
             <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: color, opacity: label === 'Cardio' ? 0.7 : 1 }} />
             {label}
           </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Coach's Corner — AI pending actions
+// ─────────────────────────────────────────────────────────────────────────────
+function CoachsCorner({ actions, onApply, onDismiss }: {
+  actions: AIAction[];
+  onApply: (id: string) => void;
+  onDismiss: (id: string) => void;
+}) {
+  const priorityIcon = (p: AIAction['priority']) =>
+    p === 'high' ? <AlertCircle size={12} className="text-red-400" />
+    : p === 'medium' ? <Brain size={12} className="text-orange-400" />
+    : <Brain size={12} className="text-zinc-500" />;
+
+  return (
+    <div className="bg-zinc-900 border border-orange-500/25 rounded-2xl overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
+        <Brain size={14} className="text-orange-400" />
+        <span className="text-xs font-bold text-orange-400 uppercase tracking-wider">Coach's Corner</span>
+        <span className="ml-auto text-xs text-zinc-600">{actions.length} recommendation{actions.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div className="divide-y divide-zinc-800">
+        {actions.map(action => (
+          <div key={action.id} className="px-4 py-3 space-y-2">
+            <div className="flex items-start gap-2">
+              {priorityIcon(action.priority)}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold leading-tight">{action.title}</p>
+                <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">{action.description}</p>
+                <p className="text-[11px] text-zinc-600 mt-1 italic">"{action.reason}"</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => onApply(action.id)}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold py-2 rounded-lg transition-colors">
+                <CheckCircle2 size={12} /> Apply
+              </button>
+              <button
+                onClick={() => onDismiss(action.id)}
+                className="px-3 border border-zinc-700 text-zinc-500 hover:text-zinc-300 text-xs font-bold py-2 rounded-lg transition-colors">
+                <X size={12} />
+              </button>
+            </div>
+          </div>
         ))}
       </div>
     </div>

@@ -3,10 +3,12 @@ import Anthropic from '@anthropic-ai/sdk';
 
 export async function POST(req: NextRequest) {
   try {
-    const { apiKey, prompt, systemPrompt } = await req.json() as {
+    const { apiKey, prompt, systemPrompt, maxTokens, model } = await req.json() as {
       apiKey: string;
       prompt: string;
       systemPrompt: string;
+      maxTokens?: number;
+      model?: string;
     };
 
     if (!apiKey) return NextResponse.json({ error: 'No API key provided' }, { status: 400 });
@@ -15,8 +17,8 @@ export async function POST(req: NextRequest) {
     const client = new Anthropic({ apiKey });
 
     const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
+      model: model ?? 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokens ?? 512,
       system: systemPrompt ?? 'You are a helpful powerbuilding coach.',
       messages: [{ role: 'user', content: prompt }],
     });

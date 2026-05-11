@@ -141,6 +141,28 @@ export interface Mesocycle {
   currentWeek: number; // 1-indexed
 }
 
+// ── AI coaching action system ─────────────────────────────────────────────────
+
+export type AIActionType =
+  | 'ADJUST_MAX_LIFT'        // auto-applies: update 1RM estimate from performance
+  | 'SWAP_PROGRAM_EXERCISE'  // needs approval: permanently swap exercise in program
+  | 'MODIFY_SETS_REPS'       // needs approval: change sets/reps for an exercise
+  | 'ADD_DELOAD'             // needs approval: schedule a deload week
+  | 'COACH_INSIGHT'          // auto-applies: informational only, no state change
+  | 'REST_TODAY';            // needs approval: recommend rest day
+
+export interface AIAction {
+  id: string;
+  type: AIActionType;
+  title: string;
+  description: string;
+  reason: string;
+  data: Record<string, unknown>;
+  autoApply: boolean;
+  priority: 'low' | 'medium' | 'high';
+  createdAt: string;
+}
+
 export interface AppState {
   programs: Program[];
   activeProgramId: string | null;
@@ -156,6 +178,8 @@ export interface AppState {
   readinessLogs: ReadinessCheckin[];
   cardioLogs: CardioLog[];
   weeklyReviews: WeeklyReview[];
+  pendingAIActions: AIAction[];
+  updatedAt: string; // ISO timestamp for cross-device sync conflict resolution
 }
 
 export type AppAction =
@@ -171,8 +195,12 @@ export type AppAction =
   | { type: 'ADVANCE_DAY' }
   | { type: 'UPDATE_SETTINGS'; settings: Partial<AppState['settings']> }
   | { type: 'SET_PROFILE'; profile: UserProfile }
+  | { type: 'UPDATE_PROFILE'; updates: Partial<UserProfile> }
   | { type: 'UPDATE_MESOCYCLE'; mesocycle: Partial<Mesocycle> }
   | { type: 'ADD_READINESS'; checkin: ReadinessCheckin }
   | { type: 'ADD_CARDIO_LOG'; log: CardioLog }
   | { type: 'ADD_WEEKLY_REVIEW'; review: WeeklyReview }
+  | { type: 'ADD_AI_ACTIONS'; actions: AIAction[] }
+  | { type: 'APPLY_AI_ACTION'; actionId: string }
+  | { type: 'DISMISS_AI_ACTION'; actionId: string }
   | { type: 'LOAD_STATE'; state: AppState };
