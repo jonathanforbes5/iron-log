@@ -1,16 +1,24 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach, useSettings } from '@/lib/store';
-import { ActiveWorkout, ProgramExercise, SetLog, CardioLog, WorkoutLog } from '@/lib/types';
+import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach, useReadiness } from '@/lib/store';
+import { ActiveWorkout, ProgramExercise, SetLog, CardioLog, WorkoutLog, ReadinessCheckin, MuscleReadiness } from '@/lib/types';
 import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES } from '@/lib/exercises';
 import {
   calcE1RM, getLastPerformance, getPreviousBest, uid, rpeColor, formatDuration,
-  getSuggestedWeightRange, getAccessorySuggestion, totalVolume, workingSetCount, calcPlates, getWarmupRamp,
+  getSuggestedWeightRange, getAccessorySuggestion, totalVolume, workingSetCount, calcPlates, getWarmupRamp, todayISO,
 } from '@/lib/utils';
 import { getAdvancedCoachingAnalysis } from '@/lib/ai';
-import { Plus, Check, Timer, X, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap, Eye, MessageSquare, FileText, Pencil } from 'lucide-react';
+import { Plus, Check, Timer, X, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap, Eye, MessageSquare, FileText, Pencil, MapPin, Moon } from 'lucide-react';
 import Link from 'next/link';
+
+const LOCATIONS = [
+  { id: 'commercial', label: 'Commercial Gym', emoji: '🏋️' },
+  { id: 'home',       label: 'Home Gym',       emoji: '🏠' },
+  { id: 'garage',     label: 'Garage Gym',     emoji: '🚗' },
+  { id: 'outdoors',   label: 'Outdoors',        emoji: '🌳' },
+  { id: 'hotel',      label: 'Hotel Gym',      emoji: '🏨' },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry point
@@ -22,14 +30,21 @@ export default function WorkoutPage() {
   const { profile } = useProfile();
   const { addCardio } = useCardio();
   const { addActions } = useAICoach();
+  const { todayLog, addCheckin } = useReadiness();
   const [showCardio, setShowCardio] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [finishedLog, setFinishedLog] = useState<import('@/lib/types').WorkoutLog | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [preWorkout, setPreWorkout] = useState<{ dayName: string; exercises: ProgramExercise[] } | null>(null);
 
-  function handleStart(dayName: string, plannedExercises: ProgramExercise[]) {
-    startWorkout({ startTime: new Date().toISOString(), programId: program?.id, dayName, plannedExercises, sets: [], swaps: {}, exerciseNotes: {}, skippedExercises: [] });
+  function requestStart(dayName: string, plannedExercises: ProgramExercise[]) {
+    setPreWorkout({ dayName, exercises: plannedExercises });
+  }
+
+  function handleStart(dayName: string, plannedExercises: ProgramExercise[], location?: string) {
+    startWorkout({ startTime: new Date().toISOString(), programId: program?.id, dayName, plannedExercises, sets: [], swaps: {}, exerciseNotes: {}, skippedExercises: [], location });
+    setPreWorkout(null);
   }
 
   async function handleFinishWorkout(log: import('@/lib/types').WorkoutLog) {
@@ -122,7 +137,7 @@ export default function WorkoutPage() {
         day={currentDay}
         logs={logs}
         profile={profile}
-        onStart={() => { setShowPreview(false); handleStart(currentDay.name, currentDay.exercises); }}
+        onStart={() => { setShowPreview(false); requestStart(currentDay.name, currentDay.exercises); }}
         onClose={() => setShowPreview(false)}
       />
     );
@@ -131,6 +146,17 @@ export default function WorkoutPage() {
   return (
     <div className="px-4 pt-6 space-y-4">
       <h1 className="text-2xl font-black tracking-tight">Start Workout</h1>
+
+      {!todayLog && (
+        <div className="bg-amber-500/10 border border-amber-500/25 rounded-2xl px-4 py-3 flex items-center gap-3">
+          <Moon size={16} className="text-amber-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-amber-300">No check-in today</p>
+            <p className="text-xs text-amber-400/70">Log your readiness before training for better AI insights</p>
+          </div>
+          <Link href="/readiness" className="text-xs font-bold text-amber-400 hover:text-amber-300 flex-shrink-0">Check in →</Link>
+        </div>
+      )}
 
       {currentDay ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
@@ -166,7 +192,7 @@ export default function WorkoutPage() {
               className="flex items-center gap-1.5 border border-zinc-700 hover:border-zinc-600 text-zinc-400 hover:text-zinc-200 font-bold py-3 px-4 rounded-xl transition-colors text-sm flex-shrink-0">
               <Eye size={15} /> Preview
             </button>
-            <button onClick={() => handleStart(currentDay.name, currentDay.exercises)}
+            <button onClick={() => requestStart(currentDay.name, currentDay.exercises)}
               className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-xl transition-colors active:scale-[0.98] text-base">
               Start Workout
             </button>
@@ -179,7 +205,7 @@ export default function WorkoutPage() {
         </div>
       )}
 
-      <button onClick={() => handleStart('Custom Workout', [])}
+      <button onClick={() => requestStart('Custom Workout', [])}
         className="w-full border border-dashed border-zinc-700 hover:border-zinc-600 text-zinc-500 hover:text-zinc-300 py-4 rounded-2xl text-sm font-semibold transition-colors">
         + Start Empty Workout
       </button>
@@ -189,6 +215,18 @@ export default function WorkoutPage() {
         <Activity size={16} />
         Log Cardio / Basketball
       </button>
+
+      {preWorkout && (
+        <PreWorkoutModal
+          dayName={preWorkout.dayName}
+          hasTodayCheckin={!!todayLog}
+          onStart={(location, checkin) => {
+            if (checkin) addCheckin(checkin);
+            handleStart(preWorkout.dayName, preWorkout.exercises, location);
+          }}
+          onCancel={() => setPreWorkout(null)}
+        />
+      )}
     </div>
   );
 }
@@ -349,7 +387,14 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
       <div className="sticky top-0 z-40 bg-zinc-950/95 backdrop-blur border-b border-zinc-800 px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-zinc-500">In Progress</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs text-zinc-500">In Progress</p>
+              {workout.location && (
+                <span className="flex items-center gap-0.5 text-[10px] text-zinc-600">
+                  <MapPin size={9} /> {workout.location}
+                </span>
+              )}
+            </div>
             <h1 className="font-black">{workout.dayName}</h1>
           </div>
           <div className="flex items-center gap-2">
@@ -494,6 +539,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
                 ? workout.exerciseNotes : undefined,
               skippedExercises: (workout.skippedExercises ?? []).length
                 ? workout.skippedExercises : undefined,
+              location: workout.location,
               rating, bodyweight: bw ? parseFloat(bw) : undefined,
               durationMinutes: elapsedMin,
             };
@@ -1373,6 +1419,170 @@ function CardioLogger({ onSave, onCancel }: { onSave: (log: CardioLog) => void; 
         className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 rounded-2xl transition-colors text-lg">
         Save Cardio Session
       </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-workout modal: check-in prompt + location picker
+// ─────────────────────────────────────────────────────────────────────────────
+function PreWorkoutModal({ dayName, hasTodayCheckin, onStart, onCancel }: {
+  dayName: string;
+  hasTodayCheckin: boolean;
+  onStart: (location: string | undefined, checkin: ReadinessCheckin | null) => void;
+  onCancel: () => void;
+}) {
+  const [location, setLocation] = useState('');
+  const [customLocation, setCustomLocation] = useState('');
+  const [energy, setEnergy] = useState<1|2|3|4|5>(3);
+  const [sleepHours, setSleepHours] = useState('7');
+  const [skipCheckin, setSkipCheckin] = useState(hasTodayCheckin);
+
+  const DEFAULT_MUSCLE_READINESS = {
+    chest: 3, back: 3, shoulders: 3, arms: 3,
+    quads: 3, hamstrings: 3, glutes: 3, core: 3, lowerBack: 3,
+  } as const;
+
+  const ENERGY_LABELS = ['', 'Low', 'Tired', 'Normal', 'Good', 'Great'];
+  const ENERGY_COLORS = ['', 'text-red-400', 'text-orange-400', 'text-yellow-400', 'text-green-400', 'text-emerald-400'];
+
+  function handleGo() {
+    const finalLocation = customLocation.trim() || location || undefined;
+    const checkin: ReadinessCheckin | null = skipCheckin ? null : {
+      id: uid(),
+      date: todayISO(),
+      sleepHours: parseFloat(sleepHours) || 7,
+      sleepQuality: energy,
+      nutrition: 3,
+      stress: 3,
+      overallEnergy: energy,
+      muscleReadiness: { ...DEFAULT_MUSCLE_READINESS } as unknown as import('@/lib/types').MuscleReadinessMap,
+      notes: '',
+    };
+    onStart(finalLocation, checkin);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-end">
+      <div className="w-full max-w-lg mx-auto bg-zinc-900 border-t border-zinc-700 rounded-t-3xl overflow-hidden" style={{ maxHeight: '88dvh' }}>
+        <div className="overflow-y-auto">
+          {/* Handle + title */}
+          <div className="px-6 pt-4 pb-3 border-b border-zinc-800">
+            <div className="w-10 h-1 bg-zinc-700 rounded-full mx-auto mb-4" />
+            <div>
+              <p className="text-xs text-zinc-500 text-center">Starting</p>
+              <h2 className="text-xl font-black text-center">{dayName}</h2>
+            </div>
+          </div>
+
+          <div className="px-6 py-4 space-y-6">
+            {/* Readiness quick check */}
+            {!hasTodayCheckin && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Moon size={14} className="text-amber-400" />
+                    <span className="text-sm font-bold">Quick Check-in</span>
+                  </div>
+                  <button
+                    onClick={() => setSkipCheckin(s => !s)}
+                    className={`text-xs font-bold px-2.5 py-1 rounded-lg border transition-colors ${skipCheckin ? 'border-zinc-600 text-zinc-500' : 'border-orange-500/40 text-orange-400 bg-orange-500/10'}`}
+                  >
+                    {skipCheckin ? 'Enable' : 'Skip'}
+                  </button>
+                </div>
+
+                {!skipCheckin && (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs text-zinc-500 mb-2">How's your energy today?</p>
+                      <div className="flex gap-2">
+                        {([1,2,3,4,5] as const).map(v => (
+                          <button key={v} onClick={() => setEnergy(v)}
+                            className={`flex-1 py-2.5 rounded-xl text-sm font-black border transition-colors ${energy === v ? 'bg-orange-500 border-orange-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-500'}`}>
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex justify-between text-[9px] text-zinc-600 mt-1 px-0.5">
+                        <span>Low</span><span>Average</span><span>Great</span>
+                      </div>
+                      {energy && (
+                        <p className={`text-xs font-bold mt-1 ${ENERGY_COLORS[energy]}`}>{ENERGY_LABELS[energy]}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-zinc-500 mb-2">Sleep last night (hours)</p>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setSleepHours(v => String(Math.max(3, parseFloat(v) - 0.5)))}
+                          className="w-9 h-9 bg-zinc-800 hover:bg-zinc-700 rounded-xl flex items-center justify-center text-zinc-300 transition-colors font-bold">
+                          −
+                        </button>
+                        <div className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl py-2 text-center font-black text-lg">
+                          {sleepHours}
+                        </div>
+                        <button onClick={() => setSleepHours(v => String(Math.min(12, parseFloat(v) + 0.5)))}
+                          className="w-9 h-9 bg-zinc-800 hover:bg-zinc-700 rounded-xl flex items-center justify-center text-zinc-300 transition-colors font-bold">
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {hasTodayCheckin && (
+              <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-3">
+                <Check size={14} className="text-green-400" />
+                <p className="text-sm text-green-300">Check-in done for today</p>
+              </div>
+            )}
+
+            {/* Location */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <MapPin size={14} className="text-zinc-400" />
+                <span className="text-sm font-bold">Where are you training?</span>
+                <span className="text-xs text-zinc-600">(optional)</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                {LOCATIONS.map(loc => (
+                  <button
+                    key={loc.id}
+                    onClick={() => { setLocation(loc.label); setCustomLocation(''); }}
+                    className={`py-2.5 rounded-xl text-xs font-bold border transition-colors flex flex-col items-center gap-1 ${location === loc.label && !customLocation ? 'bg-orange-500/20 border-orange-500/50 text-orange-300' : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-600'}`}
+                  >
+                    <span className="text-lg">{loc.emoji}</span>
+                    <span>{loc.label.split(' ')[0]}</span>
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                placeholder="Or type a custom location…"
+                value={customLocation}
+                onChange={e => { setCustomLocation(e.target.value); setLocation(''); }}
+                maxLength={40}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500 placeholder:text-zinc-600"
+              />
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="px-6 pb-8 pt-2 space-y-2">
+            <button onClick={handleGo}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-4 rounded-2xl transition-colors text-lg active:scale-[0.98]">
+              Let's Go
+            </button>
+            <button onClick={onCancel}
+              className="w-full text-zinc-500 hover:text-zinc-300 py-2.5 text-sm transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

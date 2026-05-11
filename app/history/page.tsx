@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useLogs } from '@/lib/store';
 import { WorkoutLog } from '@/lib/types';
 import { formatDate, totalVolume, workingSetCount, formatDuration, calcE1RM } from '@/lib/utils';
-import { ChevronDown, ChevronUp, Dumbbell, Clock, BarChart3 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Dumbbell, Clock, BarChart3, MapPin } from 'lucide-react';
 
 export default function HistoryPage() {
   const logs = useLogs();
@@ -63,7 +63,14 @@ function WorkoutCard({ log, expanded, onToggle }: { log: WorkoutLog; expanded: b
         <div className="flex items-start justify-between">
           <div>
             <p className="font-black">{log.dayName}</p>
-            <p className="text-xs text-zinc-500 mt-0.5">{formatDate(log.date)}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-xs text-zinc-500">{formatDate(log.date)}</p>
+              {log.location && (
+                <span className="flex items-center gap-0.5 text-[10px] text-zinc-600">
+                  <MapPin size={9} /> {log.location}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {log.rating && (

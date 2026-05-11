@@ -76,6 +76,7 @@ export interface WorkoutLog {
   notes: string;
   exerciseNotes?: Record<string, string>; // exerciseId → note for that exercise
   skippedExercises?: string[];            // exerciseIds intentionally skipped
+  location?: string;                      // where the session took place
   rating?: 1 | 2 | 3 | 4 | 5;
   bodyweight?: number;
   durationMinutes?: number;
@@ -90,6 +91,7 @@ export interface ActiveWorkout {
   swaps: Record<string, string>; // originalId → swappedId
   exerciseNotes: Record<string, string>; // exerciseId → note
   skippedExercises: string[]; // exerciseIds skipped this session
+  location?: string;           // where the session is taking place
 }
 
 export interface MuscleReadinessMap {
