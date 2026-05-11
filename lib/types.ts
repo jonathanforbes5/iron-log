@@ -74,6 +74,7 @@ export interface WorkoutLog {
   dayName: string;
   sets: SetLog[];
   notes: string;
+  exerciseNotes?: Record<string, string>; // exerciseId → note for that exercise
   rating?: 1 | 2 | 3 | 4 | 5;
   bodyweight?: number;
   durationMinutes?: number;
@@ -86,6 +87,7 @@ export interface ActiveWorkout {
   plannedExercises: ProgramExercise[];
   sets: SetLog[];
   swaps: Record<string, string>; // originalId → swappedId
+  exerciseNotes: Record<string, string>; // exerciseId → note
 }
 
 export interface MuscleReadinessMap {
@@ -216,6 +218,7 @@ export type AppAction =
   | { type: 'TOGGLE_SUPPLEMENT'; date: string; supplementId: string }
   | { type: 'LOG_WEIGHT'; log: WeightLog }
   | { type: 'UPDATE_SET'; set: SetLog }
+  | { type: 'SET_EXERCISE_NOTE'; exerciseId: string; note: string }
   | { type: 'ADD_AI_ACTIONS'; actions: AIAction[] }
   | { type: 'APPLY_AI_ACTION'; actionId: string }
   | { type: 'DISMISS_AI_ACTION'; actionId: string }

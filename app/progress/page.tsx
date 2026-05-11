@@ -351,10 +351,13 @@ function HistoryList({ logs }: { logs: WorkoutLog[] }) {
               <div className="border-t border-zinc-800">
                 {grouped.map(({ id, name, sets: exSets }) => (
                   <div key={id} className="px-4 py-3 border-b border-zinc-800/50 last:border-0">
-                    <div className="flex justify-between mb-1.5">
+                    <div className="flex justify-between mb-1">
                       <p className="text-sm font-bold">{name}</p>
                       <span className="text-xs text-zinc-600">{exSets.filter(s => !s.isWarmup).length} sets</span>
                     </div>
+                    {log.exerciseNotes?.[id] && (
+                      <p className="text-[10px] text-orange-400/70 italic mb-1.5">— {log.exerciseNotes[id]}</p>
+                    )}
                     <div className="space-y-1">
                       {exSets.map((set, i) => (
                         <div key={set.id} className={`text-xs ${set.isWarmup ? 'text-zinc-600' : 'text-zinc-400'}`}>

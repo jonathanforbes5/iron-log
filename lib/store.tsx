@@ -170,6 +170,19 @@ function reducer(state: AppState, action: AppAction): AppState {
         },
       };
 
+    case 'SET_EXERCISE_NOTE':
+      if (!state.activeWorkout) return state;
+      return {
+        ...state,
+        activeWorkout: {
+          ...state.activeWorkout,
+          exerciseNotes: {
+            ...state.activeWorkout.exerciseNotes,
+            [action.exerciseId]: action.note,
+          },
+        },
+      };
+
     case 'LOG_WEIGHT':
       return withTimestamp({
         ...state,
@@ -347,7 +360,8 @@ export function useWorkout() {
     startWorkout:  useCallback((w: ActiveWorkout) => dispatch({ type: 'START_WORKOUT', workout: w }), [dispatch]),
     logSet:        useCallback((s: SetLog) => dispatch({ type: 'LOG_SET', set: s }), [dispatch]),
     removeSet:     useCallback((id: string) => dispatch({ type: 'REMOVE_SET', setId: id }), [dispatch]),
-    updateSet:     useCallback((s: SetLog) => dispatch({ type: 'UPDATE_SET', set: s }), [dispatch]),
+    updateSet:        useCallback((s: SetLog) => dispatch({ type: 'UPDATE_SET', set: s }), [dispatch]),
+    setExerciseNote:  useCallback((exerciseId: string, note: string) => dispatch({ type: 'SET_EXERCISE_NOTE', exerciseId, note }), [dispatch]),
     swapExercise:  useCallback((orig: string, rep: string) => dispatch({ type: 'SWAP_EXERCISE', originalId: orig, replacementId: rep }), [dispatch]),
     finishWorkout: useCallback((log: WorkoutLog) => dispatch({ type: 'FINISH_WORKOUT', log }), [dispatch]),
     cancelWorkout: useCallback(() => dispatch({ type: 'CANCEL_WORKOUT' }), [dispatch]),

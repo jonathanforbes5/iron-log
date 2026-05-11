@@ -16,7 +16,7 @@ import Link from 'next/link';
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 export default function WorkoutPage() {
-  const { activeWorkout, startWorkout, logSet, removeSet, updateSet, swapExercise, finishWorkout, cancelWorkout } = useWorkout();
+  const { activeWorkout, startWorkout, logSet, removeSet, updateSet, setExerciseNote, swapExercise, finishWorkout, cancelWorkout } = useWorkout();
   const { program, currentDay } = useActiveProgram();
   const logs = useLogs();
   const { profile } = useProfile();
@@ -29,7 +29,7 @@ export default function WorkoutPage() {
   const [aiLoading, setAiLoading] = useState(false);
 
   function handleStart(dayName: string, plannedExercises: ProgramExercise[]) {
-    startWorkout({ startTime: new Date().toISOString(), programId: program?.id, dayName, plannedExercises, sets: [], swaps: {} });
+    startWorkout({ startTime: new Date().toISOString(), programId: program?.id, dayName, plannedExercises, sets: [], swaps: {}, exerciseNotes: {} });
   }
 
   async function handleFinishWorkout(log: import('@/lib/types').WorkoutLog) {
@@ -102,6 +102,7 @@ export default function WorkoutPage() {
         onLogSet={logSet}
         onRemoveSet={removeSet}
         onUpdateSet={updateSet}
+        onSetExerciseNote={setExerciseNote}
         onSwap={swapExercise}
         onFinish={handleFinishWorkout}
         onCancel={cancelWorkout}
@@ -278,13 +279,14 @@ function WorkoutPreview({ program, day, logs, profile, onStart, onClose }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Active Workout
 // ─────────────────────────────────────────────────────────────────────────────
-function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUpdateSet, onSwap, onFinish, onCancel }: {
+function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUpdateSet, onSetExerciseNote, onSwap, onFinish, onCancel }: {
   workout: ActiveWorkout;
   logs: ReturnType<typeof useLogs>;
   profile: ReturnType<typeof useProfile>['profile'];
   onLogSet: (s: SetLog) => void;
   onRemoveSet: (id: string) => void;
   onUpdateSet: (s: SetLog) => void;
+  onSetExerciseNote: (exerciseId: string, note: string) => void;
   onSwap: (orig: string, rep: string) => void;
   onFinish: (log: import('@/lib/types').WorkoutLog) => void;
   onCancel: () => void;
@@ -432,9 +434,11 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
               suggestedWeight={suggested}
               alternatives={alternatives}
               logs={logs}
+              exerciseNote={workout.exerciseNotes?.[exerciseId] ?? ''}
               onLogSet={handleLogSet}
               onRemoveSet={onRemoveSet}
               onUpdateSet={onUpdateSet}
+              onSetExerciseNote={note => onSetExerciseNote(exerciseId, note)}
               onSwap={rep => onSwap(originalId, rep)}
             />
           );
@@ -480,7 +484,10 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
               id: uid(), date: new Date().toISOString().slice(0,10),
               startTime: workout.startTime, endTime: new Date().toISOString(),
               programId: workout.programId, dayName: workout.dayName,
-              sets: workout.sets, notes, rating, bodyweight: bw ? parseFloat(bw) : undefined,
+              sets: workout.sets, notes,
+              exerciseNotes: Object.keys(workout.exerciseNotes ?? {}).length
+                ? workout.exerciseNotes : undefined,
+              rating, bodyweight: bw ? parseFloat(bw) : undefined,
               durationMinutes: elapsedMin,
             };
             onFinish(log);
@@ -496,7 +503,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
 // ─────────────────────────────────────────────────────────────────────────────
 // Exercise Card
 // ─────────────────────────────────────────────────────────────────────────────
-function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, allTimeBest, suggestedWeight, alternatives, logs, onLogSet, onRemoveSet, onUpdateSet, onSwap }: {
+function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, allTimeBest, suggestedWeight, alternatives, logs, exerciseNote, onLogSet, onRemoveSet, onUpdateSet, onSetExerciseNote, onSwap }: {
   exerciseId: string;
   originalId: string;
   planned?: ProgramExercise;
@@ -506,9 +513,11 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   suggestedWeight: { low: number; high: number } | null;
   alternatives: string[];
   logs: WorkoutLog[];
+  exerciseNote: string;
   onLogSet: (s: SetLog) => void;
   onRemoveSet: (id: string) => void;
   onUpdateSet: (s: SetLog) => void;
+  onSetExerciseNote: (note: string) => void;
   onSwap: (replacementId: string) => void;
 }) {
   const initWeight = lastPerformance?.weight.toString() ?? suggestedWeight?.high.toString() ?? '';
@@ -523,6 +532,8 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   const [quickLog, setQuickLog] = useState(false);
   const [note, setNote] = useState('');
   const [noteOpen, setNoteOpen] = useState(false);
+  const [exNoteOpen, setExNoteOpen] = useState(false);
+  const [exNoteDraft, setExNoteDraft] = useState(exerciseNote);
   const [editingSetId, setEditingSetId] = useState<string | null>(null);
   const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
   // Track the best e1RM so far in this session (starts at allTimeBest)
@@ -607,6 +618,9 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
                 {planned.sets}×{planned.repsMin}–{planned.repsMax}{planned.rpeTarget ? ` · RPE ${planned.rpeTarget}` : ''}
               </p>
             )}
+            {exerciseNote && !exNoteOpen && (
+              <p className="text-[10px] text-orange-400/80 italic mt-0.5 truncate">{exerciseNote}</p>
+            )}
           </div>
           <div className="relative w-9 h-9 flex-shrink-0">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
@@ -618,6 +632,13 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
               {workingSets.length}/{targetSets}
             </span>
           </div>
+        </button>
+        <button
+          onClick={() => { setExNoteOpen(o => !o); setExNoteDraft(exerciseNote); }}
+          className={`p-1 transition-colors ${exerciseNote || exNoteOpen ? 'text-orange-400' : 'text-zinc-600 hover:text-zinc-300'}`}
+          title="Note for this exercise"
+        >
+          <FileText size={14} />
         </button>
         {alternatives.length > 0 && (
           <button onClick={() => { setShowSwap(s => !s); setShowInfo(false); }}
@@ -632,6 +653,39 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
           </button>
         )}
       </div>
+
+      {/* Exercise-level note panel */}
+      {exNoteOpen && (
+        <div className="mx-4 mb-2 flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Note for all sets (e.g. supinated grip, paused reps…)"
+            value={exNoteDraft}
+            onChange={e => setExNoteDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { onSetExerciseNote(exNoteDraft.trim()); setExNoteOpen(false); }
+              if (e.key === 'Escape') { setExNoteOpen(false); }
+            }}
+            maxLength={80}
+            autoFocus
+            className="flex-1 bg-zinc-800 border border-orange-500/40 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-500 placeholder:text-zinc-600"
+          />
+          <button
+            onClick={() => { onSetExerciseNote(exNoteDraft.trim()); setExNoteOpen(false); }}
+            className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors"
+          >
+            Save
+          </button>
+          {exerciseNote && (
+            <button
+              onClick={() => { onSetExerciseNote(''); setExNoteDraft(''); setExNoteOpen(false); }}
+              className="text-zinc-500 hover:text-zinc-300 text-xs px-1 py-2 transition-colors"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Info panel — muscle groups + warmup ramp */}
       {showInfo && exercise && (
