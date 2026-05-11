@@ -184,7 +184,76 @@ export function rpeColor(rpe?: number): string {
   return 'text-green-400';
 }
 
-// Muscle readiness label and color
+// ── Plate calculator ─────────────────────────────────────────────────────────
+export interface PlateGroup { weight: number; count: number }
+
+export function calcPlates(targetWeight: number, barWeight = 45): PlateGroup[] {
+  const perSide = (targetWeight - barWeight) / 2;
+  if (perSide <= 0) return [];
+  const available = [45, 35, 25, 10, 5, 2.5];
+  const result: PlateGroup[] = [];
+  let remaining = perSide;
+  for (const p of available) {
+    const count = Math.floor(remaining / p);
+    if (count > 0) { result.push({ weight: p, count }); remaining = Math.round((remaining - count * p) * 100) / 100; }
+  }
+  return result;
+}
+
+// ── Warmup ramp ──────────────────────────────────────────────────────────────
+export function getWarmupRamp(workingWeight: number): { weight: number; reps: number }[] {
+  const steps = [
+    { pct: 0, reps: 10 },   // bar only
+    { pct: 0.50, reps: 5 },
+    { pct: 0.65, reps: 3 },
+    { pct: 0.80, reps: 2 },
+  ];
+  const seen = new Set<number>();
+  return steps
+    .map(({ pct, reps }) => {
+      const w = pct === 0 ? 45 : Math.round((workingWeight * pct) / 5) * 5;
+      return { weight: w, reps };
+    })
+    .filter(({ weight }) => {
+      if (weight >= workingWeight || seen.has(weight)) return false;
+      seen.add(weight);
+      return true;
+    });
+}
+
+// ── Streak (consecutive days with a workout) ──────────────────────────────────
+export function getStreak(logs: WorkoutLog[]): number {
+  if (!logs.length) return 0;
+  const dates = Array.from(new Set(logs.map(l => l.date))).sort((a, b) => b.localeCompare(a));
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (dates[0] !== today && dates[0] !== yesterday) return 0;
+  let streak = 1;
+  for (let i = 1; i < dates.length; i++) {
+    const prev = new Date(dates[i - 1] + 'T12:00');
+    const curr = new Date(dates[i] + 'T12:00');
+    const diff = Math.round((prev.getTime() - curr.getTime()) / 86400000);
+    if (diff === 1) streak++;
+    else break;
+  }
+  return streak;
+}
+
+// ── Weekly sets per muscle group ─────────────────────────────────────────────
+export function weeklyMuscleVolume(logs: WorkoutLog[]): Record<string, number> {
+  const weekStart = new Date();
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const weekStartStr = weekStart.toISOString().slice(0, 10);
+  const result: Record<string, number> = {};
+  for (const log of logs.filter(l => l.date >= weekStartStr)) {
+    for (const set of log.sets.filter(s => !s.isWarmup)) {
+      result[set.exerciseId] = (result[set.exerciseId] ?? 0) + 1;
+    }
+  }
+  return result;
+}
+
+// ── Muscle readiness label and color
 export function readinessLabel(v: number): string {
   return ['', 'Low', 'Tired', 'Normal', 'Great', 'Extra'][v] ?? 'Normal';
 }

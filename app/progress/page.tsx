@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useLogs } from '@/lib/store';
 import { EXERCISES } from '@/lib/exercises';
-import { getProgressData, calcE1RM, formatDateShort, getPreviousBest, totalVolume } from '@/lib/utils';
+import { getProgressData, calcE1RM, formatDate, formatDateShort, getPreviousBest, totalVolume, workingSetCount, formatDuration } from '@/lib/utils';
+import { WorkoutLog } from '@/lib/types';
 import {
   LineChart,
   Line,
@@ -13,13 +14,26 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { TrendingUp, Trophy, Dumbbell } from 'lucide-react';
+import { TrendingUp, Trophy, Dumbbell, History, BarChart3, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 
 const MAIN_LIFTS = ['squat', 'bench', 'deadlift', 'ohp'];
+
+const MUSCLE_MEV: Record<string, { mev: number; mav: number; label: string }> = {
+  chest:      { mev: 8,  mav: 16, label: 'Chest' },
+  back:       { mev: 10, mav: 20, label: 'Back' },
+  shoulders:  { mev: 8,  mav: 20, label: 'Shoulders' },
+  biceps:     { mev: 6,  mav: 14, label: 'Biceps' },
+  triceps:    { mev: 6,  mav: 14, label: 'Triceps' },
+  quads:      { mev: 8,  mav: 16, label: 'Quads' },
+  hamstrings: { mev: 6,  mav: 12, label: 'Hamstrings' },
+  glutes:     { mev: 4,  mav: 12, label: 'Glutes' },
+  core:       { mev: 0,  mav: 16, label: 'Core' },
+};
 
 export default function ProgressPage() {
   const logs = useLogs();
   const [selectedExercise, setSelectedExercise] = useState('squat');
+  const [view, setView] = useState<'charts' | 'history'>('charts');
 
   // Exercises that have been logged
   const loggedExerciseIds = Array.from(new Set(logs.flatMap(l => l.sets.map(s => s.exerciseId))));
@@ -37,6 +51,20 @@ export default function ProgressPage() {
     .map(l => ({ date: l.date, weight: l.bodyweight! }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  // Weekly sets per muscle group
+  const weekStart = new Date();
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const weekStartStr = weekStart.toISOString().slice(0, 10);
+  const weekSets = logs.flatMap(l => l.date >= weekStartStr ? l.sets.filter(s => !s.isWarmup) : []);
+  const muscleSetMap: Record<string, number> = {};
+  for (const set of weekSets) {
+    const ex = EXERCISES.find(e => e.id === set.exerciseId);
+    for (const mg of (ex?.muscleGroups ?? [])) {
+      const key = mg.toLowerCase().replace(' ', '');
+      muscleSetMap[key] = (muscleSetMap[key] ?? 0) + 1;
+    }
+  }
+
   if (logs.length === 0) {
     return (
       <div className="px-4 pt-6">
@@ -50,8 +78,28 @@ export default function ProgressPage() {
   }
 
   return (
-    <div className="px-4 pt-6 space-y-6">
-      <h1 className="text-2xl font-black tracking-tight">Progress</h1>
+    <div className="px-4 pt-6 space-y-5">
+      {/* Header + tab switcher */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-black tracking-tight">Progress</h1>
+        <div className="flex bg-zinc-900 border border-zinc-800 rounded-xl p-0.5 gap-0.5">
+          <button onClick={() => setView('charts')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${view === 'charts' ? 'bg-orange-500 text-white' : 'text-zinc-500'}`}>
+            <BarChart3 size={12} /> Charts
+          </button>
+          <button onClick={() => setView('history')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${view === 'history' ? 'bg-orange-500 text-white' : 'text-zinc-500'}`}>
+            <History size={12} /> History
+          </button>
+        </div>
+      </div>
+
+      {/* History view */}
+      {view === 'history' && (
+        <HistoryList logs={logs} />
+      )}
+
+      {view === 'charts' && <>
 
       {/* PRs for main lifts */}
       <div>
@@ -204,6 +252,108 @@ export default function ProgressPage() {
         <h2 className="text-sm font-bold text-zinc-300 mb-3">Last 30 Days</h2>
         <CalendarGrid logs={logs} />
       </div>
+
+      {/* Weekly muscle volume vs MEV/MAV */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold text-zinc-300">This Week — Sets per Muscle</h2>
+          <span className="text-[10px] text-zinc-600">MEV / MAV targets</span>
+        </div>
+        <div className="space-y-2.5">
+          {Object.entries(MUSCLE_MEV).map(([key, { mev, mav, label }]) => {
+            const sets = muscleSetMap[key] ?? 0;
+            const pct = Math.min(sets / mav, 1);
+            const color = sets === 0 ? '#3f3f46' : sets < mev ? '#ef4444' : sets <= mav ? '#f97316' : '#22c55e';
+            return (
+              <div key={key}>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-zinc-400">{label}</span>
+                  <span className="font-bold" style={{ color }}>{sets} sets</span>
+                </div>
+                <div className="h-1.5 bg-zinc-800 rounded-full relative overflow-visible">
+                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct * 100}%`, backgroundColor: color }} />
+                  {/* MEV marker */}
+                  <div className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-zinc-600 rounded"
+                    style={{ left: `${(mev / mav) * 100}%` }} />
+                </div>
+                <div className="flex justify-between text-[9px] text-zinc-700 mt-0.5">
+                  <span>MEV {mev}</span><span>MAV {mav}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[9px] text-zinc-700 mt-3">MEV = minimum effective volume · MAV = maximum adaptive volume</p>
+      </div>
+      </>}
+    </div>
+  );
+}
+
+// ── History list ──────────────────────────────────────────────────────────────
+function HistoryList({ logs }: { logs: WorkoutLog[] }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  return (
+    <div className="space-y-3 pb-4">
+      <p className="text-sm text-zinc-500">{logs.length} session{logs.length !== 1 ? 's' : ''}</p>
+      {logs.map(log => {
+        const isOpen = expanded === log.id;
+        const vol = totalVolume(log.sets);
+        const sets = workingSetCount(log.sets);
+        const exercises = Array.from(new Set(log.sets.map(s => s.exerciseId)));
+        const grouped = exercises.map(id => {
+          const exSets = log.sets.filter(s => s.exerciseId === id);
+          return { id, name: exSets[0].exerciseName, sets: exSets };
+        });
+        return (
+          <div key={log.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+            <button onClick={() => setExpanded(isOpen ? null : log.id)} className="w-full p-4 text-left">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-black">{log.dayName}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">{formatDate(log.date)}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {log.rating && (
+                    <span className="text-xs text-orange-400">{'★'.repeat(log.rating)}<span className="text-zinc-700">{'★'.repeat(5 - log.rating)}</span></span>
+                  )}
+                  {isOpen ? <ChevronUp size={14} className="text-zinc-600" /> : <ChevronDown size={14} className="text-zinc-600" />}
+                </div>
+              </div>
+              <div className="flex gap-3 mt-2 text-xs text-zinc-500">
+                {log.durationMinutes && <span className="flex items-center gap-1"><Clock size={10} />{formatDuration(log.durationMinutes)}</span>}
+                <span className="flex items-center gap-1"><Dumbbell size={10} />{exercises.length} exercises</span>
+                <span className="flex items-center gap-1"><BarChart3 size={10} />{sets} sets</span>
+                {vol > 0 && <span>{(vol / 1000).toFixed(0)}k lbs</span>}
+              </div>
+            </button>
+            {isOpen && (
+              <div className="border-t border-zinc-800">
+                {grouped.map(({ id, name, sets: exSets }) => (
+                  <div key={id} className="px-4 py-3 border-b border-zinc-800/50 last:border-0">
+                    <div className="flex justify-between mb-1.5">
+                      <p className="text-sm font-bold">{name}</p>
+                      <span className="text-xs text-zinc-600">{exSets.filter(s => !s.isWarmup).length} sets</span>
+                    </div>
+                    <div className="space-y-1">
+                      {exSets.map((set, i) => (
+                        <div key={set.id} className={`flex gap-3 text-xs ${set.isWarmup ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                          <span className="w-4 text-right text-zinc-600">{set.isWarmup ? 'W' : i + 1 - exSets.filter((s, j) => s.isWarmup && j < i).length}</span>
+                          <span className="font-bold text-zinc-200">{set.weight} lbs</span>
+                          <span>× {set.reps}</span>
+                          {set.rpe && <span className="text-zinc-600">@ {set.rpe}</span>}
+                          <span className="ml-auto text-zinc-700">{calcE1RM(set.weight, set.reps)} e1RM</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {log.notes && <div className="px-4 py-3 bg-zinc-800/20"><p className="text-xs text-zinc-500 italic">"{log.notes}"</p></div>}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

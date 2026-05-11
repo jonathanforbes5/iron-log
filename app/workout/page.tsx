@@ -1,15 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach } from '@/lib/store';
 import { ActiveWorkout, ProgramExercise, SetLog, CardioLog } from '@/lib/types';
 import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES } from '@/lib/exercises';
 import {
-  calcE1RM, getLastPerformance, uid, rpeColor, formatDuration,
-  getSuggestedWeightRange, totalVolume, workingSetCount,
+  calcE1RM, getLastPerformance, getPreviousBest, uid, rpeColor, formatDuration,
+  getSuggestedWeightRange, totalVolume, workingSetCount, calcPlates, getWarmupRamp,
 } from '@/lib/utils';
 import { getAdvancedCoachingAnalysis } from '@/lib/ai';
-import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity, Brain } from 'lucide-react';
+import { Plus, Check, Timer, X, Star, ChevronDown, RefreshCw, Info, Activity, Brain, Trophy, Minus, Zap } from 'lucide-react';
 import Link from 'next/link';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,6 +198,14 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
     return () => clearTimeout(id);
   }, [restTick]);
 
+  useEffect(() => {
+    if (restTick === 0) {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate([100, 50, 100, 50, 200]);
+      }
+    }
+  }, [restTick]);
+
   function handleLogSet(set: SetLog) { onLogSet(set); setRestTick(180); }
 
   const planned = workout.plannedExercises.map(ex => ({
@@ -211,6 +219,11 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
     ...extraExercises.map(e => e.exerciseId),
     ...workout.sets.map(s => s.exerciseId),
   ]));
+
+  // All-time best e1RM per exercise (from completed workouts, for PR detection)
+  const allTimeBests = Object.fromEntries(
+    uniqueIds.map(id => [id, getPreviousBest(logs, id)?.e1rm ?? null])
+  );
 
   const elapsedMin = Math.floor(elapsed / 60);
   const elapsedSec = elapsed % 60;
@@ -234,18 +247,29 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
             </button>
           </div>
         </div>
-        {restTick !== null && restTick > 0 && (
-          <div className="mt-2 flex items-center gap-2 bg-zinc-800 rounded-lg px-3 py-2">
-            <Timer size={13} className="text-orange-400" />
-            <span className="text-xs text-zinc-400">Rest:</span>
-            <span className={`text-sm font-bold font-mono ${restTick <= 30 ? 'text-orange-400' : 'text-white'}`}>
-              {Math.floor(restTick/60)}:{String(restTick%60).padStart(2,'0')}
-            </span>
-            <div className="ml-auto flex gap-2">
-              {[60,90,180].map(t => (
-                <button key={t} onClick={() => setRestTick(t)} className="text-[10px] text-zinc-500 hover:text-zinc-300">{t}s</button>
-              ))}
-              <button onClick={() => setRestTick(null)}><X size={13} className="text-zinc-600" /></button>
+        {restTick !== null && restTick >= 0 && (
+          <div className={`mt-2 rounded-xl overflow-hidden border transition-colors ${restTick === 0 ? 'border-green-500/50 bg-green-500/10' : 'border-zinc-700 bg-zinc-800/80'}`}>
+            {/* Progress bar */}
+            <div className="h-1 bg-zinc-700">
+              <div className="h-full bg-orange-500 transition-all duration-1000"
+                style={{ width: `${(restTick / 180) * 100}%`, backgroundColor: restTick <= 30 ? '#ef4444' : restTick === 0 ? '#22c55e' : '#f97316' }} />
+            </div>
+            <div className="flex items-center gap-2 px-3 py-2">
+              <Timer size={13} className={restTick === 0 ? 'text-green-400' : 'text-orange-400'} />
+              <span className={`text-sm font-black font-mono tabular-nums ${restTick === 0 ? 'text-green-400' : restTick <= 30 ? 'text-red-400' : 'text-white'}`}>
+                {restTick === 0 ? 'Go!' : `${Math.floor(restTick/60)}:${String(restTick%60).padStart(2,'0')}`}
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                {[60,90,180].map(t => (
+                  <button key={t} onClick={() => setRestTick(t)}
+                    className="text-[10px] font-bold text-zinc-500 hover:text-zinc-200 bg-zinc-700 hover:bg-zinc-600 px-1.5 py-0.5 rounded transition-colors">
+                    {t < 60 ? `${t}s` : `${t/60}m`}
+                  </button>
+                ))}
+                <button onClick={() => setRestTick(null)} className="text-zinc-600 hover:text-zinc-400 ml-1">
+                  <X size={12} />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -273,6 +297,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
               planned={meta}
               sets={exerciseSets}
               lastPerformance={lastPerf}
+              allTimeBest={allTimeBests[exerciseId] ?? null}
               suggestedWeight={suggested}
               alternatives={alternatives}
               onLogSet={handleLogSet}
@@ -310,42 +335,75 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onSw
 // ─────────────────────────────────────────────────────────────────────────────
 // Exercise Card
 // ─────────────────────────────────────────────────────────────────────────────
-function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, suggestedWeight, alternatives, onLogSet, onRemoveSet, onSwap }: {
+function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, allTimeBest, suggestedWeight, alternatives, onLogSet, onRemoveSet, onSwap }: {
   exerciseId: string;
   originalId: string;
   planned?: ProgramExercise;
   sets: SetLog[];
   lastPerformance: { weight: number; reps: number; date: string } | null;
+  allTimeBest: number | null;
   suggestedWeight: { low: number; high: number } | null;
   alternatives: string[];
   onLogSet: (s: SetLog) => void;
   onRemoveSet: (id: string) => void;
   onSwap: (replacementId: string) => void;
 }) {
-  const [weight, setWeight] = useState(() => lastPerformance?.weight.toString() ?? suggestedWeight?.high.toString() ?? '');
-  const [reps, setReps] = useState(() => planned?.repsMin.toString() ?? '');
+  const initWeight = lastPerformance?.weight.toString() ?? suggestedWeight?.high.toString() ?? '';
+  const [weight, setWeight] = useState(initWeight);
+  const [reps, setReps] = useState(planned?.repsMin.toString() ?? '');
   const [rpe, setRpe] = useState('');
   const [isWarmup, setIsWarmup] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [showPlates, setShowPlates] = useState(false);
+  const [prSetIds, setPrSetIds] = useState<Set<string>>(new Set());
+  // Track the best e1RM so far in this session (starts at allTimeBest)
+  const sessionBest = useRef<number>(allTimeBest ?? 0);
 
   const workingSets = sets.filter(s => !s.isWarmup);
   const targetSets = planned?.sets ?? 3;
   const progress = Math.min(workingSets.length / targetSets, 1);
-  const e1rm = weight && reps ? calcE1RM(parseFloat(weight), parseInt(reps)) : null;
+  const wNum = parseFloat(weight) || 0;
+  const rNum = parseInt(reps) || 0;
+  const e1rm = wNum && rNum ? calcE1RM(wNum, rNum) : null;
   const exercise = EXERCISES.find(e => e.id === exerciseId);
+  const plates = calcPlates(wNum);
+  const warmupSteps = getWarmupRamp(wNum);
+
+  function stepWeight(delta: number) {
+    setWeight(v => {
+      const next = (parseFloat(v) || 0) + delta;
+      return String(Math.max(0, Math.round(next * 10) / 10));
+    });
+  }
+  function stepReps(delta: number) {
+    setReps(v => String(Math.max(1, (parseInt(v) || 0) + delta)));
+  }
+  function loadLast() {
+    if (!lastPerformance) return;
+    setWeight(String(lastPerformance.weight));
+    setReps(String(lastPerformance.reps));
+  }
 
   function handleLog() {
     const w = parseFloat(weight);
     const r = parseInt(reps);
     if (!w || !r) return;
-    onLogSet({ id: uid(), exerciseId, exerciseName: getExerciseName(exerciseId), setNumber: sets.length + 1, weight: w, reps: r, rpe: rpe ? parseFloat(rpe) : undefined, isWarmup });
+    const setId = uid();
+    if (!isWarmup) {
+      const thisE1rm = calcE1RM(w, r);
+      if (thisE1rm > sessionBest.current) {
+        setPrSetIds(prev => new Set([...prev, setId]));
+        sessionBest.current = thisE1rm;
+      }
+    }
+    onLogSet({ id: setId, exerciseId, exerciseName: getExerciseName(exerciseId), setNumber: sets.length + 1, weight: w, reps: r, rpe: rpe ? parseFloat(rpe) : undefined, isWarmup });
     setIsWarmup(false);
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+    <div className={`bg-zinc-900 border rounded-2xl overflow-hidden transition-colors ${workingSets.length >= targetSets ? 'border-green-500/30' : 'border-zinc-800'}`}>
       {/* Header */}
       <div className="flex items-center gap-2 px-4 pt-3 pb-2">
         <button onClick={() => setCollapsed(c => !c)} className="flex-1 flex items-center gap-3 text-left">
@@ -357,7 +415,6 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
               </p>
             )}
           </div>
-          {/* Progress circle */}
           <div className="relative w-9 h-9 flex-shrink-0">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
               <circle cx="18" cy="18" r="14" fill="none" stroke="#27272a" strokeWidth="3" />
@@ -369,10 +426,9 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
             </span>
           </div>
         </button>
-        {/* Swap + Info buttons */}
         {alternatives.length > 0 && (
           <button onClick={() => { setShowSwap(s => !s); setShowInfo(false); }}
-            className="text-zinc-600 hover:text-zinc-300 transition-colors p-1" title="Swap exercise">
+            className="text-zinc-600 hover:text-zinc-300 transition-colors p-1">
             <RefreshCw size={14} />
           </button>
         )}
@@ -384,12 +440,29 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
         )}
       </div>
 
-      {/* Exercise Info panel */}
+      {/* Info panel — muscle groups + warmup ramp */}
       {showInfo && exercise && (
-        <div className="mx-4 mb-2 bg-zinc-800/60 rounded-xl p-3">
+        <div className="mx-4 mb-2 bg-zinc-800/60 rounded-xl p-3 space-y-2">
           <p className="text-xs text-zinc-400"><span className="text-zinc-300 font-semibold">Muscles:</span> {exercise.muscleGroups.join(', ')}</p>
-          <p className="text-xs text-zinc-400 mt-0.5"><span className="text-zinc-300 font-semibold">Type:</span> {exercise.category} · {exercise.movement}</p>
-          {planned?.notes && <p className="text-xs text-orange-400 mt-1 italic">{planned.notes}</p>}
+          <p className="text-xs text-zinc-400"><span className="text-zinc-300 font-semibold">Type:</span> {exercise.category} · {exercise.movement}</p>
+          {planned?.notes && <p className="text-xs text-orange-400 italic">{planned.notes}</p>}
+          {wNum > 0 && warmupSteps.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Warmup Ramp</p>
+              <div className="flex gap-2 flex-wrap">
+                {warmupSteps.map((step, i) => (
+                  <div key={i} className="bg-zinc-700/60 rounded-lg px-2.5 py-1.5 text-center">
+                    <p className="text-xs font-bold text-zinc-200">{step.weight}</p>
+                    <p className="text-[9px] text-zinc-500">×{step.reps}</p>
+                  </div>
+                ))}
+                <div className="bg-orange-500/20 border border-orange-500/30 rounded-lg px-2.5 py-1.5 text-center">
+                  <p className="text-xs font-bold text-orange-400">{wNum}</p>
+                  <p className="text-[9px] text-orange-400/70">work</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -411,70 +484,136 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
 
       {!collapsed && (
         <>
-          {/* Suggested weight */}
-          {suggestedWeight && (
-            <div className="px-4 pb-1">
-              <p className="text-xs text-orange-400">
-                Suggested: {suggestedWeight.low}–{suggestedWeight.high} lbs (based on your 1RM)
-              </p>
-            </div>
-          )}
-
-          {/* Last performance */}
-          {lastPerformance && (
-            <div className="px-4 pb-1">
-              <p className="text-xs text-zinc-600">
-                Last: {lastPerformance.weight} × {lastPerformance.reps}
-              </p>
-            </div>
-          )}
+          {/* Context row: suggested weight + last + load last button */}
+          <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
+            {suggestedWeight && (
+              <span className="text-xs text-orange-400 font-semibold">
+                Target: {suggestedWeight.low}–{suggestedWeight.high} lbs
+              </span>
+            )}
+            {lastPerformance && (
+              <span className="text-xs text-zinc-600">
+                Last: {lastPerformance.weight}×{lastPerformance.reps}
+              </span>
+            )}
+            {lastPerformance && (
+              <button onClick={loadLast}
+                className="ml-auto text-[10px] font-bold text-zinc-500 hover:text-orange-400 border border-zinc-700 hover:border-orange-500/50 px-2 py-1 rounded-lg transition-colors">
+                Load Last
+              </button>
+            )}
+          </div>
 
           {/* Logged sets */}
           {sets.length > 0 && (
             <div className="px-4 pb-2">
-              <div className="grid grid-cols-[2.5rem_1fr_1fr_1fr_1.5rem] text-[10px] text-zinc-600 mb-1 px-1">
+              <div className="grid grid-cols-[2rem_1fr_1fr_1fr_auto] text-[10px] text-zinc-600 mb-1 px-1 gap-1">
                 <span>#</span><span>Weight</span><span>Reps</span><span>RPE</span><span />
               </div>
               {sets.map((set, i) => {
                 const workingIdx = sets.filter((s, j) => !s.isWarmup && j < i).length;
+                const isPR = prSetIds.has(set.id);
                 return (
-                  <div key={set.id} className={`grid grid-cols-[2.5rem_1fr_1fr_1fr_1.5rem] items-center py-2 px-1 rounded-lg mb-0.5 ${set.isWarmup ? 'opacity-50' : 'bg-zinc-800/50'}`}>
+                  <div key={set.id} className={`grid grid-cols-[2rem_1fr_1fr_1fr_auto] items-center py-1.5 px-1 rounded-lg mb-0.5 gap-1 ${set.isWarmup ? 'opacity-40' : isPR ? 'bg-yellow-500/10 border border-yellow-500/20' : 'bg-zinc-800/50'}`}>
                     <span className="text-xs text-zinc-500">{set.isWarmup ? 'W' : workingIdx + 1}</span>
                     <span className="text-sm font-semibold">{set.weight}</span>
                     <span className="text-sm">{set.reps}</span>
                     <span className={`text-sm ${rpeColor(set.rpe)}`}>{set.rpe ?? '—'}</span>
-                    <button onClick={() => onRemoveSet(set.id)} className="text-zinc-700 hover:text-red-400 transition-colors">
-                      <X size={12} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {isPR && <Trophy size={11} className="text-yellow-400" />}
+                      <button onClick={() => onRemoveSet(set.id)} className="text-zinc-700 hover:text-red-400 transition-colors">
+                        <X size={11} />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
           )}
 
-          {/* Input row */}
+          {/* Input row with +/- buttons */}
           <div className="px-4 pb-4 space-y-3">
             <div className="grid grid-cols-3 gap-2">
-              {[
-                { label: 'Weight', val: weight, set: setWeight, ph: 'lbs' },
-                { label: 'Reps',   val: reps,   set: setReps,   ph: 'reps' },
-                { label: 'RPE',    val: rpe,    set: setRpe,    ph: '6–10' },
-              ].map(({ label, val, set, ph }) => (
-                <div key={label}>
-                  <p className="text-[10px] text-zinc-600 mb-1 text-center">{label}</p>
-                  <input type="number" placeholder={ph} value={val}
-                    onChange={e => set(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg py-2.5 text-center text-sm font-bold focus:outline-none focus:border-orange-500 transition-colors no-spin" />
+              {/* Weight */}
+              <div>
+                <p className="text-[10px] text-zinc-600 mb-1 text-center">Weight (lbs)</p>
+                <div className="flex items-stretch">
+                  <button onClick={() => stepWeight(-2.5)}
+                    className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-l-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
+                    <Minus size={12} />
+                  </button>
+                  <input type="number" value={weight} onChange={e => setWeight(e.target.value)}
+                    className="flex-1 min-w-0 bg-zinc-800 border-y border-zinc-700 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin py-2.5" />
+                  <button onClick={() => stepWeight(2.5)}
+                    className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-r-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
+                    <Plus size={12} />
+                  </button>
                 </div>
-              ))}
+              </div>
+              {/* Reps */}
+              <div>
+                <p className="text-[10px] text-zinc-600 mb-1 text-center">Reps</p>
+                <div className="flex items-stretch">
+                  <button onClick={() => stepReps(-1)}
+                    className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-l-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
+                    <Minus size={12} />
+                  </button>
+                  <input type="number" value={reps} onChange={e => setReps(e.target.value)}
+                    className="flex-1 min-w-0 bg-zinc-800 border-y border-zinc-700 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin py-2.5" />
+                  <button onClick={() => stepReps(1)}
+                    className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-r-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
+                    <Plus size={12} />
+                  </button>
+                </div>
+              </div>
+              {/* RPE */}
+              <div>
+                <p className="text-[10px] text-zinc-600 mb-1 text-center">RPE</p>
+                <input type="number" placeholder="6–10" value={rpe} onChange={e => setRpe(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg py-2.5 text-center text-sm font-bold focus:outline-none focus:border-orange-500 no-spin" />
+              </div>
             </div>
 
+            {/* e1RM + plate toggle */}
             {e1rm && (
-              <p className="text-center text-xs text-zinc-500">
-                e1RM: <span className="text-orange-400 font-bold">{e1rm} lbs</span>
-              </p>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-500">
+                  e1RM: <span className={`font-bold ${allTimeBest && e1rm > allTimeBest ? 'text-yellow-400' : 'text-orange-400'}`}>{e1rm} lbs</span>
+                  {allTimeBest && e1rm > allTimeBest && <span className="text-yellow-400 ml-1">↑ PR</span>}
+                </span>
+                {plates.length > 0 && (
+                  <button onClick={() => setShowPlates(p => !p)}
+                    className="text-zinc-600 hover:text-zinc-300 underline decoration-dotted transition-colors">
+                    {showPlates ? 'Hide' : 'Plates'}
+                  </button>
+                )}
+              </div>
             )}
 
+            {/* Plate calculator */}
+            {showPlates && plates.length > 0 && (
+              <div className="bg-zinc-800/60 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Bar + Plates (per side)</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="bg-zinc-600 rounded px-2 py-1 text-xs font-bold">45 bar</div>
+                  {plates.map((p, i) => (
+                    <div key={i} className="flex items-center gap-1">
+                      <div className={`rounded px-2 py-1 text-xs font-bold ${
+                        p.weight === 45 ? 'bg-blue-600' : p.weight === 35 ? 'bg-yellow-600' :
+                        p.weight === 25 ? 'bg-green-600' : p.weight === 10 ? 'bg-zinc-500' :
+                        p.weight === 5 ? 'bg-zinc-600' : 'bg-zinc-700'
+                      }`}>
+                        {p.weight}
+                      </div>
+                      {p.count > 1 && <span className="text-xs text-zinc-500">×{p.count}</span>}
+                    </div>
+                  ))}
+                  <span className="text-xs text-zinc-600">per side</span>
+                </div>
+              </div>
+            )}
+
+            {/* Log row */}
             <div className="flex gap-2">
               <button onClick={() => setIsWarmup(w => !w)}
                 className={`flex-shrink-0 text-xs font-bold py-2.5 px-3 rounded-lg border transition-colors ${isWarmup ? 'border-yellow-500/50 text-yellow-400 bg-yellow-500/10' : 'border-zinc-700 text-zinc-500'}`}>
@@ -492,6 +631,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
     </div>
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Add Exercise Button

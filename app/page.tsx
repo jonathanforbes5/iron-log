@@ -5,7 +5,7 @@ import { useActiveProgram, useLogs, useReadiness, useMesocycle, useProfile, useC
 import {
   formatDate, formatDateShort, getPreviousBest, todayISO, totalVolume,
   workingSetCount, getMesocyclePhase, getPhaseColor, getPhaseLabel, getPeakDate,
-  overallReadinessScore,
+  overallReadinessScore, getStreak,
 } from '@/lib/utils';
 import { getExerciseName } from '@/lib/exercises';
 import { AIAction } from '@/lib/types';
@@ -22,6 +22,7 @@ export default function Dashboard() {
   const { syncing, syncError } = useSync();
 
   const today = todayISO();
+  const streak = getStreak(logs);
   const phase = getMesocyclePhase(mesocycle.currentWeek, mesocycle.totalWeeks);
   const phaseColor = getPhaseColor(phase);
   const phaseLabel = getPhaseLabel(phase);
@@ -50,7 +51,14 @@ export default function Dashboard() {
       {/* Greeting */}
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-zinc-500 text-sm">{formatDate(today)}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-zinc-500 text-sm">{formatDate(today)}</p>
+            {streak >= 2 && (
+              <span className="text-xs font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded-full">
+                🔥 {streak}d
+              </span>
+            )}
+          </div>
           <h1 className="text-2xl font-black tracking-tight mt-0.5">
             {getGreeting()}{profile?.name ? `, ${profile.name.split(' ')[0]}` : ''}
           </h1>
