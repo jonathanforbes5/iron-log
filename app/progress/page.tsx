@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useLogs, useWeightLog } from '@/lib/store';
+import { todayISO } from '@/lib/utils';
 import { EXERCISES } from '@/lib/exercises';
 import { getProgressData, calcE1RM, formatDate, formatDateShort, getPreviousBest, totalVolume, workingSetCount, formatDuration } from '@/lib/utils';
 import { WorkoutLog } from '@/lib/types';
@@ -55,7 +56,7 @@ export default function ProgressPage() {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // Weight trend
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const recentBw = bwData.filter(l => l.date <= today).slice(-7);
   const priorBw = bwData.filter(l => l.date < (recentBw[0]?.date ?? today)).slice(-7);
   let bwTrend: string | null = null;

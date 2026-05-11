@@ -155,7 +155,8 @@ export function formatDateShort(iso: string): string {
 }
 
 export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  // Use Eastern Time so midnight ET is the day boundary on all devices
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
 
 export function uid(): string {

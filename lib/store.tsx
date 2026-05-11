@@ -6,11 +6,12 @@ import {
   ActiveWorkout, UserProfile, ReadinessCheckin, CardioLog, WeeklyReview, Mesocycle, AIAction, DailySupplementLog, WeightLog,
 } from './types';
 import { applyAIAction } from './aiActions';
+import { todayISO } from './utils';
 
 const STORAGE_KEY = 'ironlog_v2';
 
 const DEFAULT_MESOCYCLE: Mesocycle = {
-  startDate: new Date().toISOString().slice(0, 10),
+  startDate: todayISO(),
   totalWeeks: 7,
   currentWeek: 1,
 };
@@ -239,9 +240,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (raw) localState = { ...defaultState, ...JSON.parse(raw) as AppState };
     } catch { /* ignore */ }
 
-    // Load local state immediately so the gate knows the real profile
-    if (localState) dispatch({ type: 'LOAD_STATE', state: localState });
-    setHydrated(true); // gate can now decide redirect vs. render
+    if (localState) {
+      // Existing device: show immediately from localStorage, KV reconciles in background
+      dispatch({ type: 'LOAD_STATE', state: localState });
+      setHydrated(true);
+    }
+    // New device (no localStorage): wait for KV before marking hydrated so the
+    // OnboardingGate doesn't fire before real profile data arrives
 
     async function fetchKV() {
       try {
@@ -258,6 +263,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setSyncError(true);
       } finally {
         setSyncing(false);
+        if (!localState) setHydrated(true); // new device: unblock gate after KV attempt
       }
     }
 
@@ -345,7 +351,7 @@ export function useLogs() {
 export function useReadiness() {
   const { state, dispatch } = useStore();
   const addCheckin = useCallback((c: ReadinessCheckin) => dispatch({ type: 'ADD_READINESS', checkin: c }), [dispatch]);
-  const todayLog = state.readinessLogs.find(r => r.date === new Date().toISOString().slice(0, 10)) ?? null;
+  const todayLog = state.readinessLogs.find(r => r.date === todayISO()) ?? null;
   return { readinessLogs: state.readinessLogs, todayLog, addCheckin };
 }
 
@@ -411,7 +417,6 @@ export function useWeightLog() {
     (log: WeightLog) => dispatch({ type: 'LOG_WEIGHT', log }),
     [dispatch],
   );
-  const today = new Date().toISOString().slice(0, 10);
-  const todayWeight = (state.weightLogs ?? []).find(l => l.date === today)?.weight ?? null;
+  const todayWeight = (state.weightLogs ?? []).find(l => l.date === todayISO())?.weight ?? null;
   return { weightLogs: state.weightLogs ?? [], todayWeight, logWeight };
 }

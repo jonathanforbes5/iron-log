@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useProfile, useSettings, useSync, useMesocycle } from '@/lib/store';
 import { ExperienceLevel, Goal } from '@/lib/types';
-import { ChevronLeft, Save, Cloud, CloudOff, Key, Dumbbell, User, RefreshCw, Calendar } from 'lucide-react';
+import { ChevronLeft, Save, Cloud, CloudOff, Key, Dumbbell, User, RefreshCw, Calendar, LogOut } from 'lucide-react';
 
 const MAIN_LIFTS = [
   { id: 'squat',    label: 'Back Squat' },
@@ -251,6 +251,17 @@ export default function SettingsPage() {
         className={`w-full font-bold py-4 rounded-2xl transition-all text-lg flex items-center justify-center gap-2 ${saved ? 'bg-green-500 text-white' : 'bg-orange-500 hover:bg-orange-600 text-white'}`}>
         <Save size={18} />
         {saved ? 'Saved!' : 'Save Changes'}
+      </button>
+
+      <button
+        onClick={async () => {
+          await fetch('/api/auth/logout', { method: 'POST' });
+          router.replace('/login');
+        }}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors text-sm"
+      >
+        <LogOut size={14} />
+        Log Out
       </button>
     </div>
   );

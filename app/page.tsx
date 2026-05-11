@@ -255,7 +255,7 @@ function WeightWidget({ weightLogs, todayWeight, logWeight }: {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   // Trend: compare last 7 days avg vs prior 7
   const sorted = [...weightLogs].sort((a, b) => a.date.localeCompare(b.date));
