@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach, useReadiness } from '@/lib/store';
 import { ActiveWorkout, ProgramExercise, SetLog, CardioLog, WorkoutLog, ReadinessCheckin, MuscleReadiness } from '@/lib/types';
-import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES } from '@/lib/exercises';
+import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES, isAddedWeightExercise } from '@/lib/exercises';
 import {
   calcE1RM, getLastPerformance, getPreviousBest, uid, rpeColor, formatDuration,
   getSuggestedWeightRange, getAccessorySuggestion, totalVolume, workingSetCount, calcPlates, getWarmupRamp, todayISO,
@@ -667,7 +667,12 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
       <div className="flex items-center gap-2 px-4 pt-3 pb-2">
         <button onClick={() => setCollapsed(c => !c)} className="flex-1 flex items-center gap-3 text-left">
           <div className="flex-1">
-            <h3 className={`font-black ${isSkipped ? 'line-through text-zinc-500' : ''}`}>{getExerciseName(exerciseId)}</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className={`font-black ${isSkipped ? 'line-through text-zinc-500' : ''}`}>{getExerciseName(exerciseId)}</h3>
+              {isAddedWeightExercise(exerciseId) && !isSkipped && (
+                <span className="text-[9px] font-bold text-zinc-500 bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 rounded-md tracking-wide">added weight</span>
+              )}
+            </div>
             {isSkipped ? (
               <p className="text-[10px] text-zinc-600 italic">Skipped</p>
             ) : planned ? (

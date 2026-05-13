@@ -207,7 +207,9 @@ ${todayDayInfo.map(d => `Day "${d.name}" (id: ${d.id}): ${d.exercises.join(', ')
 
 ${notesContext}
 
-Analyze this session with special attention to week-over-week changes. If any e1RM clearly exceeds current max by >5%, suggest ADJUST_MAX_LIFT. Give direct, specific coaching.`;
+IMPORTANT — weight logging convention: for machine and cable exercises (leg press, hack squat, lat pulldown, cable row, machine press, pec deck, leg extension, leg curl, etc.) the logged weight is the ADDED weight or stack setting only, NOT total resistance. Do not compare these numbers to barbell 1RMs or use them for e1RM calculations. Only suggest ADJUST_MAX_LIFT for free-weight barbell/dumbbell lifts.
+
+Analyze this session with special attention to week-over-week changes. If any e1RM clearly exceeds current max by >5% on a FREE WEIGHT exercise, suggest ADJUST_MAX_LIFT. Give direct, specific coaching.`;
 
   try {
     const raw = await callAI(apiKey, prompt, COACHING_SYSTEM, 1024, 'claude-sonnet-4-6');
@@ -240,6 +242,8 @@ Notes: "${review.notes}"
 ${wowData}
 
 Current maxes — Squat: ${profile.maxLifts['squat'] ?? '?'}, Bench: ${profile.maxLifts['bench'] ?? '?'}, Deadlift: ${profile.maxLifts['deadlift'] ?? '?'}, OHP: ${profile.maxLifts['ohp'] ?? '?'}
+
+Note: machine/cable exercise weights (leg press, lat pulldown, etc.) are added weight or stack settings only — do not compare to barbell lifts or use for 1RM estimates.
 
 Provide next-week adjustments. Consider: joint health ≤2 → ADD_DELOAD. Recovery ≤2 → reduce volume. Strength ≥4 → potential load increase.`;
 

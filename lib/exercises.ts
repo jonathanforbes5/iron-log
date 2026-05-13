@@ -179,3 +179,25 @@ export const EXERCISE_MUSCLE_KEY: Record<string, string[]> = {
   'leg-press': ['quads','glutes'],
   'hip-thrust': ['glutes','hamstrings'],
 };
+
+// Exercises where the logged number is "added weight" or "stack setting",
+// not the full resistance (e.g. leg press: 90 lbs loaded ≠ 90 lbs moved).
+// Used to label the UI and give AI coaching the right context.
+export const ADDED_WEIGHT_EXERCISES = new Set([
+  // Plate-loaded machines
+  'leg-press', 'hack-squat', 'smith-squat', 'smith-bench',
+  // Selectorized machines
+  'machine-press', 'machine-row', 'pec-deck',
+  'leg-extension', 'leg-curl', 'calf-raise', 'seated-calf-raise',
+  'ab-crunch-machine',
+  // Cable stack
+  'lat-pulldown', 'neutral-pulldown', 'straight-arm-pulldown',
+  'cable-row', 'cable-fly', 'cable-curl', 'cable-lateral-raise',
+  'cable-crunch', 'cable-twist',
+  'tricep-pushdown', 'rope-pushdown', 'face-pulls',
+  'chest-supported-row',
+]);
+
+export function isAddedWeightExercise(id: string): boolean {
+  return ADDED_WEIGHT_EXERCISES.has(id);
+}
