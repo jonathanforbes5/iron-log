@@ -676,7 +676,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
               </p>
             ) : null}
             {exerciseNote && !exNoteOpen && !isSkipped && (
-              <p className="text-[10px] text-orange-400/80 italic mt-0.5 truncate">{exerciseNote}</p>
+              <p className="text-[10px] text-orange-400/80 italic mt-0.5 leading-snug">{exerciseNote}</p>
             )}
           </div>
           <div className="relative w-9 h-9 flex-shrink-0">
@@ -720,34 +720,34 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
 
       {/* Exercise-level note panel */}
       {exNoteOpen && (
-        <div className="mx-4 mb-2 flex items-center gap-2">
-          <input
-            type="text"
+        <div className="mx-4 mb-2 space-y-2">
+          <textarea
             placeholder="Note for all sets (e.g. supinated grip, paused reps…)"
             value={exNoteDraft}
             onChange={e => setExNoteDraft(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') { onSetExerciseNote(exNoteDraft.trim()); setExNoteOpen(false); }
               if (e.key === 'Escape') { setExNoteOpen(false); }
             }}
-            maxLength={80}
+            rows={2}
             autoFocus
-            className="flex-1 bg-zinc-800 border border-orange-500/40 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-500 placeholder:text-zinc-600"
+            className="w-full bg-zinc-800 border border-orange-500/40 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-500 placeholder:text-zinc-600 resize-none"
           />
+          <div className="flex gap-2">
           <button
             onClick={() => { onSetExerciseNote(exNoteDraft.trim()); setExNoteOpen(false); }}
-            className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors"
+            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors"
           >
             Save
           </button>
           {exerciseNote && (
             <button
               onClick={() => { onSetExerciseNote(''); setExNoteDraft(''); setExNoteOpen(false); }}
-              className="text-zinc-500 hover:text-zinc-300 text-xs px-1 py-2 transition-colors"
+              className="text-zinc-500 hover:text-zinc-300 text-xs px-3 py-2 rounded-xl border border-zinc-700 transition-colors"
             >
-              <X size={12} />
+              Clear
             </button>
           )}
+          </div>
         </div>
       )}
 
