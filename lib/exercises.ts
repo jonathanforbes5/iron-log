@@ -36,6 +36,7 @@ export const EXERCISES: Exercise[] = [
   { id: 'cable-fly',        name: 'Cable Fly',              category: 'isolation', muscleGroups: ['Chest'],                               movement: 'push' },
   { id: 'pec-deck',         name: 'Pec Deck',               category: 'isolation', muscleGroups: ['Chest'],                               movement: 'push' },
   { id: 'floor-press',      name: 'Floor Press',            category: 'accessory', muscleGroups: ['Chest','Triceps'],                     movement: 'push' },
+  { id: 'push-ups',         name: 'Push-Ups',               category: 'accessory', muscleGroups: ['Chest','Triceps','Front Delt'],        movement: 'push' },
   { id: 'machine-press',    name: 'Machine Chest Press',    category: 'accessory', muscleGroups: ['Chest','Triceps'],                     movement: 'push' },
   { id: 'smith-bench',      name: 'Smith Machine Bench',    category: 'accessory', muscleGroups: ['Chest','Triceps'],                     movement: 'push' },
 
@@ -57,6 +58,7 @@ export const EXERCISES: Exercise[] = [
   // ── Vertical Pull ────────────────────────────────────────────────────────────
   { id: 'pull-ups',         name: 'Pull-Ups',               category: 'compound',  muscleGroups: ['Lats','Biceps','Upper Back'], movement: 'pull' },
   { id: 'chin-ups',         name: 'Chin-Ups',               category: 'compound',  muscleGroups: ['Lats','Biceps'],             movement: 'pull' },
+  { id: 'weighted-chin-ups',name: 'Weighted Chin-Ups',      category: 'compound',  muscleGroups: ['Lats','Biceps'],             movement: 'pull' },
   { id: 'lat-pulldown',     name: 'Lat Pulldown',           category: 'accessory', muscleGroups: ['Lats','Biceps'],             movement: 'pull' },
   { id: 'neutral-pulldown', name: 'Neutral Grip Pulldown',  category: 'accessory', muscleGroups: ['Lats','Biceps'],             movement: 'pull' },
   { id: 'straight-arm-pulldown', name: 'Straight Arm Pulldown', category: 'isolation', muscleGroups: ['Lats'], movement: 'pull' },
@@ -142,7 +144,11 @@ export const EXERCISE_ALTERNATIVES: Record<string, string[]> = {
   // Pull
   'barbell-row':         ['db-row', 'cable-row', 'chest-supported-row', 't-bar-row', 'machine-row'],
   'pull-ups':            ['chin-ups', 'lat-pulldown', 'neutral-pulldown', 'weighted-pull-ups'],
-  'chin-ups':            ['pull-ups', 'lat-pulldown', 'cable-curl'],
+  'chin-ups':            ['pull-ups', 'lat-pulldown', 'cable-curl', 'weighted-chin-ups'],
+  'weighted-pull-ups':   ['pull-ups', 'chin-ups', 'weighted-chin-ups', 'lat-pulldown'],
+  'weighted-chin-ups':   ['chin-ups', 'pull-ups', 'weighted-pull-ups', 'lat-pulldown'],
+  'dips':                ['tricep-pushdown', 'skull-crusher', 'push-ups', 'close-grip-bench'],
+  'push-ups':            ['bench', 'db-bench', 'incline-db-bench', 'dips'],
   'lat-pulldown':        ['pull-ups', 'neutral-pulldown', 'straight-arm-pulldown'],
   'neutral-pulldown':    ['lat-pulldown', 'pull-ups', 'cable-row'],
   'cable-row':           ['barbell-row', 'db-row', 'machine-row', 'chest-supported-row'],
@@ -200,4 +206,15 @@ export const ADDED_WEIGHT_EXERCISES = new Set([
 
 export function isAddedWeightExercise(id: string): boolean {
   return ADDED_WEIGHT_EXERCISES.has(id);
+}
+
+// Exercises where weight is optional — 0 = bodyweight only, positive = added weight.
+export const BODYWEIGHT_EXERCISES = new Set([
+  'pull-ups', 'chin-ups', 'weighted-pull-ups', 'weighted-chin-ups',
+  'dips', 'push-ups',
+  'plank', 'ab-wheel', 'hanging-leg-raise', 'nordic-curl',
+]);
+
+export function isBodyweightExercise(id: string): boolean {
+  return BODYWEIGHT_EXERCISES.has(id);
 }

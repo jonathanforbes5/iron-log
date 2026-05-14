@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach, useReadiness, useWeightLog } from '@/lib/store';
 import { ActiveWorkout, ProgramExercise, SetLog, CardioLog, WorkoutLog, ReadinessCheckin, MuscleReadiness } from '@/lib/types';
-import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES, isAddedWeightExercise } from '@/lib/exercises';
+import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES, isAddedWeightExercise, isBodyweightExercise } from '@/lib/exercises';
 import {
   calcE1RM, getLastPerformance, getPreviousBest, uid, rpeColor, formatDuration,
   getSuggestedWeightRange, getAccessorySuggestion, totalVolume, workingSetCount, calcPlates, getWarmupRamp, todayISO,
@@ -576,7 +576,8 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   onSwap: (replacementId: string) => void;
   onToggleSkip: () => void;
 }) {
-  const initWeight = lastPerformance?.weight.toString() ?? suggestedWeight?.high.toString() ?? '';
+  const isBodyweight = isBodyweightExercise(exerciseId);
+  const initWeight = lastPerformance?.weight.toString() ?? suggestedWeight?.high.toString() ?? (isBodyweight ? '0' : '');
   const [weight, setWeight] = useState(initWeight);
   const [reps, setReps] = useState(planned?.repsMin.toString() ?? '');
   const [rpe, setRpe] = useState('');
@@ -601,6 +602,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   const wNum = parseFloat(weight) || 0;
   const rNum = parseInt(reps) || 0;
   const e1rm = wNum && rNum ? calcE1RM(wNum, rNum) : null;
+  const bwDisplay = isBodyweight && wNum === 0 && rNum > 0 ? `BW × ${rNum} reps` : null;
   const exercise = EXERCISES.find(e => e.id === exerciseId);
   const plates = calcPlates(wNum);
   const warmupSteps = getWarmupRamp(wNum);
@@ -630,7 +632,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
   function handleLog() {
     const w = parseFloat(weight);
     const r = parseInt(reps);
-    if (!w || !r) return;
+    if (isNaN(w) || w < 0 || !r) return;
     const setId = uid();
     if (!isWarmup) {
       const thisE1rm = calcE1RM(w, r);
@@ -672,6 +674,9 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
               <h3 className={`font-black ${isSkipped ? 'line-through text-zinc-500' : ''}`}>{getExerciseName(exerciseId)}</h3>
               {isAddedWeightExercise(exerciseId) && !isSkipped && (
                 <span className="text-[9px] font-bold text-zinc-500 bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 rounded-md tracking-wide">added weight</span>
+              )}
+              {isBodyweight && !isSkipped && (
+                <span className="text-[9px] font-bold text-zinc-500 bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 rounded-md tracking-wide">bodyweight</span>
               )}
             </div>
             {isSkipped ? (
@@ -959,7 +964,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
                 <div className="grid grid-cols-3 gap-2">
                   {/* Weight */}
                   <div>
-                    <p className="text-[10px] text-zinc-600 mb-1 text-center">Weight (lbs)</p>
+                    <p className="text-[10px] text-zinc-600 mb-1 text-center">{isBodyweight ? 'Added wt' : 'Weight (lbs)'}</p>
                     <div className="flex items-stretch">
                       <button onClick={() => stepWeight(-2.5)}
                         className="w-8 bg-zinc-700 hover:bg-zinc-600 rounded-l-lg flex items-center justify-center text-zinc-300 transition-colors active:scale-95 flex-shrink-0">
@@ -998,13 +1003,17 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
                 </div>
 
                 {/* e1RM + plate toggle */}
-                {e1rm && (
+                {(e1rm || bwDisplay) && (
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-500">
-                      e1RM: <span className={`font-bold ${allTimeBest && e1rm > allTimeBest ? 'text-yellow-400' : 'text-orange-400'}`}>{e1rm} lbs</span>
-                      {allTimeBest && e1rm > allTimeBest && <span className="text-yellow-400 ml-1">↑ PR</span>}
-                    </span>
-                    {plates.length > 0 && (
+                    {bwDisplay ? (
+                      <span className="text-zinc-500 font-semibold">{bwDisplay}</span>
+                    ) : (
+                      <span className="text-zinc-500">
+                        e1RM: <span className={`font-bold ${allTimeBest && e1rm! > allTimeBest ? 'text-yellow-400' : 'text-orange-400'}`}>{e1rm} lbs</span>
+                        {allTimeBest && e1rm! > allTimeBest && <span className="text-yellow-400 ml-1">↑ PR</span>}
+                      </span>
+                    )}
+                    {!isBodyweight && plates.length > 0 && (
                       <button onClick={() => setShowPlates(p => !p)}
                         className="text-zinc-600 hover:text-zinc-300 underline decoration-dotted transition-colors">
                         {showPlates ? 'Hide' : 'Plates'}
@@ -1061,7 +1070,7 @@ function ExerciseCard({ exerciseId, originalId, planned, sets, lastPerformance, 
                   >
                     <MessageSquare size={14} />
                   </button>
-                  <button onClick={handleLog} disabled={!weight || !reps}
+                  <button onClick={handleLog} disabled={(weight === '' || isNaN(parseFloat(weight)) || parseFloat(weight) < 0) || !reps}
                     className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-2.5 rounded-lg transition-colors active:scale-[0.98]">
                     <Check size={15} />
                     Log Set
@@ -1094,7 +1103,7 @@ function SetEditRow({ set, onSave, onDelete, onCancel }: {
   function save() {
     const w = parseFloat(weight);
     const r = parseInt(reps);
-    if (!w || !r) return;
+    if (isNaN(w) || w < 0 || !r) return;
     onSave({ ...set, weight: w, reps: r, rpe: rpe ? parseFloat(rpe) : undefined, note: note.trim() || undefined });
   }
 
@@ -1208,7 +1217,7 @@ function QuickLogPanel({ targetSets, initWeight, initReps, onLogAll, onCancel }:
 
   function handleLogAll() {
     const w = parseFloat(weight);
-    if (!w) return;
+    if (isNaN(w) || w < 0) return;
     onLogAll(w, repsArr.map(r => parseInt(r) || 0));
   }
 
@@ -1254,7 +1263,7 @@ function QuickLogPanel({ targetSets, initWeight, initReps, onLogAll, onCancel }:
         ))}
       </div>
 
-      <button onClick={handleLogAll} disabled={!parseFloat(weight)}
+      <button onClick={handleLogAll} disabled={weight === '' || isNaN(parseFloat(weight)) || parseFloat(weight) < 0}
         className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-2.5 rounded-lg transition-colors active:scale-[0.98]">
         <Check size={14} />
         Log All {targetSets} Sets

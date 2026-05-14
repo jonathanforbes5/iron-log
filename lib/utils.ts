@@ -169,7 +169,7 @@ function progressionIncrement(exerciseId: string): number {
 function getLastSessionSets(logs: WorkoutLog[], exerciseId: string): SetLog[] {
   const sorted = [...logs].sort((a, b) => b.date.localeCompare(a.date));
   for (const log of sorted) {
-    const sets = log.sets.filter(s => s.exerciseId === exerciseId && !s.isWarmup && s.weight > 0 && s.reps > 0);
+    const sets = log.sets.filter(s => s.exerciseId === exerciseId && !s.isWarmup && s.weight >= 0 && s.reps > 0);
     if (sets.length > 0) return sets;
   }
   return [];
@@ -274,7 +274,7 @@ export function getLastPerformance(
 ): { weight: number; reps: number; date: string } | null {
   const sorted = [...logs].sort((a, b) => b.date.localeCompare(a.date));
   for (const log of sorted) {
-    const sets = log.sets.filter(s => s.exerciseId === exerciseId && !s.isWarmup && s.weight > 0);
+    const sets = log.sets.filter(s => s.exerciseId === exerciseId && !s.isWarmup && s.weight >= 0);
     if (sets.length > 0) {
       const top = sets.reduce((h, s) => (s.weight > h.weight ? s : h), sets[0]);
       return { weight: top.weight, reps: top.reps, date: log.date };
