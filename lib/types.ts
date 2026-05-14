@@ -231,6 +231,7 @@ export interface AppState {
 
 export type AppAction =
   | { type: 'ADD_PROGRAM'; program: Program }
+  | { type: 'UPDATE_PROGRAM'; program: Program }
   | { type: 'DELETE_PROGRAM'; id: string }
   | { type: 'SET_ACTIVE_PROGRAM'; id: string | null }
   | { type: 'START_WORKOUT'; workout: ActiveWorkout }

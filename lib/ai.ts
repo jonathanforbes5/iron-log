@@ -1,5 +1,5 @@
 import { UserProfile, ReadinessCheckin, WeeklyReview, WorkoutLog, ProgramDay, Program, AIAction, SetLog, WeightLog } from './types';
-import { isAddedWeightExercise } from './exercises';
+import { isAddedWeightExercise, getExerciseName } from './exercises';
 import { uid } from './utils';
 
 // ── API call helper ──────────────────────────────────────────────────────────
@@ -402,4 +402,105 @@ Sets: ${topSets.join(' | ')}
 Goal: hypertrophy first, strength comeback second.
 ${targetLine}`;
   return callAI(apiKey, prompt, system, 150);
+}
+
+// ── Weekly program planning ────────────────────────────────────────────────────
+
+export interface WeekAdjustment {
+  dayIndex: number;    // 0-based index into program.days
+  exerciseId: string;  // exercise to modify (from current program)
+  sets?: number;
+  repsMin?: number;
+  repsMax?: number;
+  rpeTarget?: number;
+  notes?: string;      // coaching cue for this exercise this week
+  swapTo?: string;     // swap this exercise for another exerciseId
+}
+
+export interface NextWeekPlan {
+  weekSummary: string;
+  adjustments: WeekAdjustment[];
+}
+
+export async function planNextWeek(
+  review: WeeklyReview,
+  weekLogs: WorkoutLog[],
+  profile: UserProfile,
+  program: Program,
+  apiKey: string,
+  userRequest = '',
+): Promise<NextWeekPlan> {
+  const programText = program.days.map((day, i) => {
+    const exLines = day.exercises.map(ex =>
+      `    [day${i}:${ex.exerciseId}] ${getExerciseName(ex.exerciseId)}: ${ex.sets}×${ex.repsMin}-${ex.repsMax}${ex.rpeTarget ? ` @RPE${ex.rpeTarget}` : ''}`
+    ).join('\n');
+    return `Day ${i + 1} (dayIndex:${i}) — ${day.name}:\n${exLines}`;
+  }).join('\n\n');
+
+  const exerciseIds = new Set(program.days.flatMap(d => d.exercises.map(e => e.exerciseId)));
+
+  const perfLines: string[] = [];
+  for (const log of weekLogs) {
+    for (const exId of Array.from(new Set(log.sets.map(s => s.exerciseId)))) {
+      const working = log.sets.filter(s => s.exerciseId === exId && !s.isWarmup);
+      if (!working.length) continue;
+      const top = working.reduce((m, s) => s.weight > m.weight ? s : m, working[0]);
+      perfLines.push(`  ${getExerciseName(exId)}: top ${top.weight} lbs × ${top.reps} reps (${working.length} sets)`);
+    }
+  }
+
+  const targetCtx = buildTargetContext(profile);
+
+  const systemPrompt = `You are a strength coach programming next week's training for a powerbuilding comeback athlete.
+Goals: hypertrophy FIRST, regain former strength (Bench 325, Squat 455, Deadlift 545) SECOND.
+Return ONLY valid JSON — no markdown, no commentary outside the JSON.
+
+HARD RULES (cannot be overridden by user requests):
+- Do NOT remove Squat, Bench, Deadlift, or OHP from any day
+- Maximum 6 adjustments total across all days
+- Progressive overload only: increase sets by 1 OR reps by 1-2 OR RPE by 0.5 — never all at once
+- If jointHealth ≤ 2: drop RPE by 0.5, do NOT add volume
+- If overallRating ≤ 2 OR motivation ≤ 2: reduce accessory sets by 1 max
+- swapTo must be a reasonable alternative (e.g. pull-ups ↔ lat-pulldown) — no swaps on main lifts
+- If user request conflicts with rules, honor what you can and explain briefly in weekSummary`;
+
+  const prompt = `Week ${review.weekNumber} review scores — Overall:${review.overallRating}/5, Strength:${review.strengthFeel}/5, Recovery:${review.recoveryFeel}/5, Motivation:${review.motivation}/5, Joints:${review.jointHealth}/5
+Hit all sessions: ${review.hitAllSessions}
+Athlete notes: "${review.notes || 'none'}"
+
+This week's top sets:
+${perfLines.join('\n') || '  No data logged'}
+
+${targetCtx}
+
+Current program:
+${programText}
+
+${userRequest ? `Athlete request for next week: "${userRequest}"` : 'No special request.'}
+
+Return JSON:
+{
+  "weekSummary": "2-3 sentences: what's the focus, what changed, why",
+  "adjustments": [
+    { "dayIndex": 0, "exerciseId": "bench", "sets": 5, "repsMin": 3, "repsMax": 5, "rpeTarget": 8.5 },
+    { "dayIndex": 0, "exerciseId": "incline-bench", "notes": "Drive for 4×8 — 5 lbs heavier than last week" }
+  ]
+}`;
+
+  try {
+    const text = await callAI(apiKey, prompt, systemPrompt, 1000, 'claude-haiku-4-5-20251001');
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON found');
+    const parsed = JSON.parse(jsonMatch[0]) as NextWeekPlan;
+    // Validate: only allow adjustments that reference real day indices and exercise IDs in the program
+    parsed.adjustments = (parsed.adjustments ?? [])
+      .filter(adj =>
+        adj.dayIndex >= 0 && adj.dayIndex < program.days.length &&
+        (exerciseIds.has(adj.exerciseId))
+      )
+      .slice(0, 8);
+    return parsed;
+  } catch {
+    return { weekSummary: 'Progressive overload week — keep adding weight to the main lifts and aim for one extra rep on your accessories.', adjustments: [] };
+  }
 }

@@ -52,6 +52,9 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'ADD_PROGRAM':
       return withTimestamp({ ...state, programs: [...state.programs, action.program] });
 
+    case 'UPDATE_PROGRAM':
+      return withTimestamp({ ...state, programs: state.programs.map(p => p.id === action.program.id ? action.program : p) });
+
     case 'DELETE_PROGRAM': {
       const programs = state.programs.filter(p => p.id !== action.id);
       const activeProgramId = state.activeProgramId === action.id ? null : state.activeProgramId;
@@ -410,9 +413,10 @@ export function useProfile() {
 export function usePrograms() {
   const { state, dispatch } = useStore();
   const addProgram    = useCallback((program: Program) => dispatch({ type: 'ADD_PROGRAM', program }), [dispatch]);
+  const updateProgram = useCallback((program: Program) => dispatch({ type: 'UPDATE_PROGRAM', program }), [dispatch]);
   const deleteProgram = useCallback((id: string) => dispatch({ type: 'DELETE_PROGRAM', id }), [dispatch]);
   const setActive     = useCallback((id: string | null) => dispatch({ type: 'SET_ACTIVE_PROGRAM', id }), [dispatch]);
-  return { programs: state.programs, activeProgramId: state.activeProgramId, addProgram, deleteProgram, setActive };
+  return { programs: state.programs, activeProgramId: state.activeProgramId, addProgram, updateProgram, deleteProgram, setActive };
 }
 
 export function useActiveProgram() {

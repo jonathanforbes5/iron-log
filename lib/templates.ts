@@ -18,7 +18,7 @@ export const PROGRAM_TEMPLATES: Program[] = [
         exercises: [
           { exerciseId: 'bench',          sets: 4, repsMin: 3, repsMax: 5, rpeTarget: 8, notes: 'Main movement — focus on bar speed', alternatives: ['db-bench','incline-bench','machine-press','smith-bench'] },
           { exerciseId: 'barbell-row',    sets: 4, repsMin: 4, repsMax: 6, rpeTarget: 8, alternatives: ['db-row','cable-row','chest-supported-row','t-bar-row'] },
-          { exerciseId: 'incline-db-bench', sets: 3, repsMin: 8, repsMax: 12, rpeTarget: 8, alternatives: ['incline-bench','db-bench','cable-fly'] },
+          { exerciseId: 'incline-bench', sets: 3, repsMin: 6, repsMax: 10, rpeTarget: 8, notes: 'Barbell incline — drive chest through ceiling', alternatives: ['incline-db-bench','db-bench','cable-fly','machine-press'] },
           { exerciseId: 'neutral-pulldown', sets: 3, repsMin: 8, repsMax: 12, rpeTarget: 8, alternatives: ['pull-ups','lat-pulldown','cable-row'] },
           { exerciseId: 'ohp',            sets: 3, repsMin: 6, repsMax: 10, rpeTarget: 7,  alternatives: ['db-ohp','arnold-press','landmine-press'] },
           { exerciseId: 'face-pulls',     sets: 3, repsMin: 15, repsMax: 20 },
@@ -104,7 +104,7 @@ export const PROGRAM_TEMPLATES: Program[] = [
         id: uid(), name: 'Day 3 — Volume & Pump', dayNumber: 3, type: 'hypertrophy',
         exercises: [
           { exerciseId: 'hack-squat',  sets: 4, repsMin: 10, repsMax: 15, rpeTarget: 8, alternatives: ['leg-press','goblet-squat','bulgarian-split-squat'] },
-          { exerciseId: 'incline-db-bench', sets: 4, repsMin: 10, repsMax: 15, rpeTarget: 8, alternatives: ['db-bench','cable-fly','pec-deck'] },
+          { exerciseId: 'incline-bench', sets: 4, repsMin: 8, repsMax: 12, rpeTarget: 8, notes: 'Barbell incline — drive through', alternatives: ['incline-db-bench','db-bench','cable-fly','pec-deck'] },
           { exerciseId: 'cable-row',   sets: 4, repsMin: 12, repsMax: 15, rpeTarget: 8, alternatives: ['chest-supported-row','machine-row','db-row'] },
           { exerciseId: 'hip-thrust',  sets: 3, repsMin: 12, repsMax: 15, alternatives: ['rdl','leg-curl'] },
           { exerciseId: 'leg-curl',    sets: 3, repsMin: 12, repsMax: 15, alternatives: ['rdl','nordic-curl'] },
@@ -146,7 +146,7 @@ export const PROGRAM_TEMPLATES: Program[] = [
         exercises: [
           { exerciseId: 'bench',       sets: 4, repsMin: 3, repsMax: 5, rpeTarget: 8, alternatives: ['db-bench','incline-bench','machine-press'] },
           { exerciseId: 'ohp',         sets: 3, repsMin: 6, repsMax: 10, rpeTarget: 8, alternatives: ['db-ohp','arnold-press'] },
-          { exerciseId: 'incline-db-bench', sets: 3, repsMin: 10, repsMax: 15, rpeTarget: 8 },
+          { exerciseId: 'incline-bench', sets: 3, repsMin: 8, repsMax: 12, rpeTarget: 8, alternatives: ['incline-db-bench','db-bench','cable-fly'] },
           { exerciseId: 'lateral-raise', sets: 4, repsMin: 15, repsMax: 20 },
           { exerciseId: 'cable-fly',   sets: 3, repsMin: 12, repsMax: 15 },
           { exerciseId: 'tricep-pushdown', sets: 3, repsMin: 12, repsMax: 15 },
