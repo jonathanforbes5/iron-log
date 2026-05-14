@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useWeeklyReview, useLogs, useProfile, useMesocycle, useAICoach, useReadiness, useCardio } from '@/lib/store';
+import { useWeeklyReview, useLogs, useProfile, useMesocycle, useAICoach, useReadiness, useCardio, useWeightLog } from '@/lib/store';
 import { WeeklyReview } from '@/lib/types';
 import { uid, totalVolume, workingSetCount, formatDate, todayISO } from '@/lib/utils';
 import { getWeeklyReviewAnalysis } from '@/lib/ai';
@@ -50,6 +50,7 @@ function WeeklyReviewContent() {
   const { profile } = useProfile();
   const { mesocycle, updateMesocycle } = useMesocycle();
   const { addActions } = useAICoach();
+  const { weightLogs } = useWeightLog();
 
   const [ratings, setRatings] = useState<Record<string, 1|2|3|4|5>>({
     overallRating: 3, strengthFeel: 3, recoveryFeel: 3, motivation: 3, jointHealth: 3,
@@ -90,7 +91,7 @@ function WeeklyReviewContent() {
     if (profile?.claudeApiKey) {
       setAiLoading(true);
       try {
-        const { analysis, actions } = await getWeeklyReviewAnalysis(review, weekLogs, profile, profile.claudeApiKey);
+        const { analysis, actions } = await getWeeklyReviewAnalysis(review, weekLogs, profile, profile.claudeApiKey, weightLogs);
         review.aiAnalysis = analysis;
         setAiAnalysis(analysis);
         if (actions.length) addActions(actions);

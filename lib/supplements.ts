@@ -25,6 +25,7 @@ export const SUPPLEMENT_STACK: SupplementDef[] = [
   { id: 'yerba_mate',    name: 'Yerba Mate',           timing: 'morning' },
   { id: 'electrolytes',  name: 'Electrolytes',         timing: 'morning', conditional: true },
   // Breakfast / Post-Workout
+  { id: 'protein_shake', name: 'Protein Shake',        timing: 'breakfast' },
   { id: 'mens_multi',    name: "Men's Multi",          timing: 'breakfast' },
   { id: 'omega3',        name: 'Omega-3',              timing: 'breakfast' },
   { id: 'd3_k2',         name: 'D3/K2',               timing: 'breakfast', conditional: true },

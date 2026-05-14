@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach, useReadiness } from '@/lib/store';
+import { useWorkout, useActiveProgram, useLogs, useProfile, useCardio, useAICoach, useReadiness, useWeightLog } from '@/lib/store';
 import { ActiveWorkout, ProgramExercise, SetLog, CardioLog, WorkoutLog, ReadinessCheckin, MuscleReadiness } from '@/lib/types';
 import { EXERCISES, getExerciseName, EXERCISE_ALTERNATIVES, isAddedWeightExercise } from '@/lib/exercises';
 import {
@@ -31,6 +31,7 @@ export default function WorkoutPage() {
   const { addCardio } = useCardio();
   const { addActions } = useAICoach();
   const { todayLog, addCheckin } = useReadiness();
+  const { weightLogs } = useWeightLog();
   const [showCardio, setShowCardio] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [finishedLog, setFinishedLog] = useState<import('@/lib/types').WorkoutLog | null>(null);
@@ -54,7 +55,7 @@ export default function WorkoutPage() {
       setAiLoading(true);
       try {
         const { analysis, actions } = await getAdvancedCoachingAnalysis(
-          log, logs.slice(0, 8), profile, program ?? null, profile.claudeApiKey,
+          log, logs.slice(0, 8), profile, program ?? null, profile.claudeApiKey, weightLogs,
         );
         if (analysis) setAiAnalysis(analysis);
         if (actions.length) addActions(actions);

@@ -19,7 +19,8 @@ export interface UserProfile {
   height: number;       // inches
   experience: ExperienceLevel;
   goal: Goal;
-  maxLifts: Record<string, number>; // exerciseId → 1RM in lbs
+  maxLifts: Record<string, number>;       // exerciseId → current estimated 1RM in lbs
+  targetMaxLifts?: Record<string, number>; // exerciseId → comeback / long-term goal 1RM
   daysPerWeek: 3 | 4;
   onboardingComplete: boolean;
   claudeApiKey?: string;

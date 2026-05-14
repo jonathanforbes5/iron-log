@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useProfile, useSettings, useSync, useMesocycle, useStore } from '@/lib/store';
 import { ExperienceLevel, Goal } from '@/lib/types';
-import { ChevronLeft, Save, Cloud, CloudOff, Key, Dumbbell, User, RefreshCw, Calendar, LogOut, Download } from 'lucide-react';
+import { ChevronLeft, Save, Cloud, CloudOff, Key, Dumbbell, User, RefreshCw, Calendar, LogOut, Download, Target } from 'lucide-react';
 
 const MAIN_LIFTS = [
   { id: 'squat',    label: 'Back Squat' },
@@ -39,15 +39,25 @@ export default function SettingsPage() {
   const [daysPerWeek, setDaysPerWeek] = useState<3|4>(profile?.daysPerWeek ?? 4);
   const [claudeApiKey, setClaudeApiKey] = useState(profile?.claudeApiKey ?? '');
 
-  // Max lifts
+  // Max lifts (current estimates)
   const [maxLifts, setMaxLifts] = useState<Record<string, string>>(
     Object.fromEntries(
       MAIN_LIFTS.map(l => [l.id, String(profile?.maxLifts[l.id] ?? '')])
     )
   );
 
+  // Target / comeback lifts
+  const [targetLifts, setTargetLifts] = useState<Record<string, string>>(
+    Object.fromEntries(
+      MAIN_LIFTS.map(l => [l.id, String(profile?.targetMaxLifts?.[l.id] ?? '')])
+    )
+  );
+
   function setLift(id: string, val: string) {
     setMaxLifts(m => ({ ...m, [id]: val }));
+  }
+  function setTargetLift(id: string, val: string) {
+    setTargetLifts(m => ({ ...m, [id]: val }));
   }
 
   function handleSave() {
@@ -56,6 +66,13 @@ export default function SettingsPage() {
       const n = parseFloat(maxLifts[id]);
       if (n > 0) liftNums[id] = n;
       else if (maxLifts[id] === '') delete liftNums[id];
+    }
+
+    const targetNums: Record<string, number> = { ...(profile?.targetMaxLifts ?? {}) };
+    for (const { id } of MAIN_LIFTS) {
+      const n = parseFloat(targetLifts[id]);
+      if (n > 0) targetNums[id] = n;
+      else if (targetLifts[id] === '') delete targetNums[id];
     }
 
     updateProfile({
@@ -67,6 +84,7 @@ export default function SettingsPage() {
       goal,
       daysPerWeek,
       maxLifts: liftNums,
+      targetMaxLifts: Object.keys(targetNums).length ? targetNums : undefined,
       claudeApiKey: claudeApiKey.trim() || undefined,
     });
 
@@ -176,6 +194,38 @@ export default function SettingsPage() {
               </div>
             </div>
           ))}
+        </div>
+      </Section>
+
+      {/* Target / Comeback Lifts */}
+      <Section icon={<Target size={15} className="text-orange-400" />} title="Comeback Goals">
+        <p className="text-xs text-zinc-500 -mt-1">Your all-time bests or long-term targets. AI coaching uses these to track progress toward your goals.</p>
+        <div className="space-y-2 mt-1">
+          {MAIN_LIFTS.slice(0, 4).map(lift => {
+            const current = parseFloat(maxLifts[lift.id]) || 0;
+            const target = parseFloat(targetLifts[lift.id]) || 0;
+            const gap = target > 0 && current > 0 ? target - current : null;
+            return (
+              <div key={lift.id} className="flex items-center gap-3">
+                <span className="text-sm text-zinc-400 flex-1">{lift.label}</span>
+                {gap !== null && (
+                  <span className={`text-[10px] font-bold ${gap <= 0 ? 'text-green-400' : 'text-zinc-500'}`}>
+                    {gap <= 0 ? 'Achieved!' : `-${gap} lbs`}
+                  </span>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    value={targetLifts[lift.id]}
+                    onChange={e => setTargetLift(lift.id, e.target.value)}
+                    placeholder="—"
+                    className="w-20 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm font-bold text-right focus:outline-none focus:border-orange-500 no-spin"
+                  />
+                  <span className="text-xs text-zinc-600">lbs</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </Section>
 

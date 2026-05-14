@@ -86,7 +86,9 @@ export default function Dashboard() {
     if (cached) { setDailyTip(cached); return; }
     if (!profile?.claudeApiKey || !profile) return;
     setTipLoading(true);
-    getDailyTip(profile, logs.slice(0, 10), todayLog, profile.claudeApiKey)
+    const todaySupLog = supplementLogs.find(l => l.date === today);
+    const proteinToday = todaySupLog?.taken.includes('protein_shake') ?? false;
+    getDailyTip(profile, logs.slice(0, 10), todayLog, profile.claudeApiKey, weightLogs, proteinToday)
       .then(tip => { setDailyTip(tip); localStorage.setItem(tipKey, tip); })
       .catch(() => {})
       .finally(() => setTipLoading(false));

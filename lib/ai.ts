@@ -1,4 +1,5 @@
-import { UserProfile, ReadinessCheckin, WeeklyReview, WorkoutLog, ProgramDay, Program, AIAction, SetLog } from './types';
+import { UserProfile, ReadinessCheckin, WeeklyReview, WorkoutLog, ProgramDay, Program, AIAction, SetLog, WeightLog } from './types';
+import { isAddedWeightExercise } from './exercises';
 import { uid } from './utils';
 
 // ── API call helper ──────────────────────────────────────────────────────────
@@ -20,11 +21,11 @@ async function callAI(
   return data.text;
 }
 
-// ── Week-over-week helper ─────────────────────────────────────────────────────
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
 function isoWeekMonday(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00');
-  const dow = d.getDay(); // 0=Sun
+  const dow = d.getDay();
   d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
   return d.toISOString().slice(0, 10);
 }
@@ -78,6 +79,34 @@ function formatNotes(log: WorkoutLog): string {
   return parts.join('\n') || 'None';
 }
 
+function buildTargetContext(profile: UserProfile): string {
+  const targets = profile.targetMaxLifts;
+  if (!targets || !Object.keys(targets).length) return '';
+  const liftNames: Record<string, string> = { squat: 'Squat', bench: 'Bench', deadlift: 'Deadlift', ohp: 'OHP' };
+  const lines = Object.entries(targets).map(([id, target]) => {
+    const current = profile.maxLifts[id];
+    const name = liftNames[id] ?? id;
+    if (current) {
+      const pct = Math.round((current / target) * 100);
+      return `${name}: ${current} → ${target} lbs (${pct}% of goal, ${target - current} lbs to go)`;
+    }
+    return `${name}: target ${target} lbs`;
+  });
+  return `Comeback targets:\n${lines.join('\n')}`;
+}
+
+function buildWeightTrend(weightLogs: WeightLog[]): string {
+  if (!weightLogs.length) return '';
+  const sorted = [...weightLogs].sort((a, b) => a.date.localeCompare(b.date));
+  const recent = sorted.slice(-14);
+  if (recent.length < 2) return `Current bodyweight: ${recent[0]?.weight ?? '?'} lbs`;
+  const first = recent[0].weight;
+  const last = recent[recent.length - 1].weight;
+  const delta = (last - first).toFixed(1);
+  const dir = last > first ? '+' : '';
+  return `Bodyweight: ${last} lbs (${dir}${delta} lbs over last ${recent.length} entries)`;
+}
+
 function parseActions(raw: unknown[]): AIAction[] {
   return raw
     .filter((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
@@ -95,17 +124,17 @@ function parseActions(raw: unknown[]): AIAction[] {
     .filter(a => ['ADJUST_MAX_LIFT','SWAP_PROGRAM_EXERCISE','MODIFY_SETS_REPS','ADD_DELOAD','COACH_INSIGHT','REST_TODAY'].includes(a.type));
 }
 
-// ── Advanced coaching analysis (called after workouts, reviews, etc.) ─────────
+// ── Advanced coaching analysis (post-workout) ─────────────────────────────────
 
-const COACHING_SYSTEM = `You are an elite AI powerbuilding coach with full access to the athlete's performance data. Analyze their data deeply and return ONLY a valid JSON object in exactly this format:
+const COACHING_SYSTEM = `You are an elite strength and hypertrophy coach. The athlete's PRIMARY goal is building muscle mass and looking great; SECONDARY goal is regaining their former strength. They have specific comeback targets for their main lifts. Analyze their data and return ONLY a valid JSON object:
 
 {
-  "analysis": "2-4 sentence coaching insight that is specific, data-driven, and actionable",
+  "analysis": "3-5 sentence coaching insight. Be SPECIFIC: reference actual weights, reps, and trends from their data. Vary your advice — cover technique, superset pairings, rep ranges, progression strategy, or recovery based on what the data shows. Do NOT give the same generic tip every session.",
   "actions": [
     {
       "type": "ACTION_TYPE",
       "title": "Short title under 8 words",
-      "description": "Clear user-facing explanation of what changes",
+      "description": "Clear user-facing explanation",
       "reason": "Specific data-driven reason",
       "data": {},
       "autoApply": boolean,
@@ -114,40 +143,38 @@ const COACHING_SYSTEM = `You are an elite AI powerbuilding coach with full acces
   ]
 }
 
-Available action types and their data schemas:
+Available actions:
 
-ADJUST_MAX_LIFT — Auto-applied immediately. Use when set data clearly indicates 1RM is higher/lower than estimated.
+ADJUST_MAX_LIFT — Auto-applied. Use when free-weight e1RM exceeds current max by >5%.
   data: { "exerciseId": string, "newMax": number, "oldMax": number }
   autoApply: true
-  When to use: athlete hit top of rep range at low RPE, or e1RM from logged sets exceeds estimate by >5%
 
-SWAP_PROGRAM_EXERCISE — Requires approval. Permanently swap an exercise in the program.
+SWAP_PROGRAM_EXERCISE — Approval required. Permanently swap an exercise.
   data: { "dayId": string, "oldExerciseId": string, "newExerciseId": string, "dayName": string }
   autoApply: false
 
-MODIFY_SETS_REPS — Requires approval. Adjust volume/intensity for an exercise.
+MODIFY_SETS_REPS — Approval required. Change volume/rep ranges.
   data: { "dayId": string, "exerciseId": string, "newSets": number, "newRepsMin": number, "newRepsMax": number }
   autoApply: false
 
-ADD_DELOAD — Requires approval. Suggest a deload week.
+ADD_DELOAD — Approval required. Suggest deload week.
   data: {}
   autoApply: false
-  When to use: joint health ≤2, recovery ≤2, or consecutive weeks of declining performance
 
-COACH_INSIGHT — Auto-applied (text only, no state change). Use for important observations.
+COACH_INSIGHT — Auto-applied, text only.
   data: { "note": string }
   autoApply: true
 
-REST_TODAY — Requires approval. Recommend skipping today.
+REST_TODAY — Approval required. Recommend skipping today.
   data: {}
   autoApply: false
 
 Rules:
-- Return 0–4 actions. Quality over quantity.
-- Only suggest ADJUST_MAX_LIFT if you have clear evidence from the logged sets (e.g. Epley e1RM > current max by >5%).
-- Use correct exerciseIds (squat, bench, deadlift, ohp, rdl, row, pullup, etc.)
-- dayId must match exactly. If unknown, omit the action.
-- Return ONLY the JSON object — no markdown, no explanation, no code fences.`;
+- 0–3 actions max. Quality over quantity.
+- Only ADJUST_MAX_LIFT on FREE WEIGHT barbell/dumbbell exercises (never machines or cables).
+- Machine/cable weights are ADDED weight or stack setting — never use for e1RM.
+- dayId must match exactly or omit the action.
+- Return ONLY the JSON object — no markdown, no code fences.`;
 
 export async function getAdvancedCoachingAnalysis(
   workoutLog: WorkoutLog,
@@ -155,64 +182,57 @@ export async function getAdvancedCoachingAnalysis(
   profile: UserProfile,
   program: Program | null,
   apiKey: string,
+  weightLogs: WeightLog[] = [],
 ): Promise<{ analysis: string; actions: AIAction[] }> {
   const workingSets = workoutLog.sets.filter(s => !s.isWarmup);
 
-  // Build per-exercise top set summaries with e1RM
   const exerciseIds = Array.from(new Set(workingSets.map(s => s.exerciseId)));
   const exerciseSummaries = exerciseIds.map(id => {
     const sets = workingSets.filter(s => s.exerciseId === id);
+    const isMachine = isAddedWeightExercise(id);
     const top = sets.reduce((b, s) => (s.weight * (1 + s.reps / 30) > b.weight * (1 + b.reps / 30) ? s : b), sets[0]);
-    const e1rm = Math.round(top.weight * (1 + top.reps / 30));
-    const currentMax = profile.maxLifts[id] ?? null;
-    return `${top.exerciseName}: best set ${top.weight}×${top.reps}${top.rpe ? ` @RPE${top.rpe}` : ''}, e1RM≈${e1rm}${currentMax ? ` (current max: ${currentMax})` : ''}`;
+    const e1rm = isMachine ? null : Math.round(top.weight * (1 + top.reps / 30));
+    const currentMax = !isMachine ? (profile.maxLifts[id] ?? null) : null;
+    const targetMax = !isMachine ? (profile.targetMaxLifts?.[id] ?? null) : null;
+    const allSets = sets.map(s => `${s.weight}×${s.reps}${s.rpe ? `@${s.rpe}` : ''}`).join(', ');
+    let line = `${top.exerciseName}${isMachine ? ' [machine/added-wt]' : ''}: sets=[${allSets}]`;
+    if (e1rm) line += `, e1RM≈${e1rm}`;
+    if (currentMax) line += ` (est.max: ${currentMax})`;
+    if (targetMax) line += ` (target: ${targetMax})`;
+    return line;
   });
 
-  // Recent trend for main lifts
-  const recentTrend = ['squat','bench','deadlift','ohp']
-    .map(id => {
-      const sets = recentLogs.flatMap(l => l.sets).filter(s => s.exerciseId === id && !s.isWarmup);
-      if (!sets.length) return null;
-      const byDate = sets.reduce((acc, s) => {
-        const d = s.id.slice(0,10); // approximation
-        acc[d] = Math.max(acc[d] ?? 0, s.weight);
-        return acc;
-      }, {} as Record<string, number>);
-      const vals = Object.values(byDate);
-      const trend = vals.length > 1 ? (vals[vals.length - 1] > vals[0] ? 'up' : vals[vals.length - 1] < vals[0] ? 'down' : 'flat') : 'stable';
-      return `${id}: trend ${trend}`;
-    })
-    .filter(Boolean);
-
-  // Find today's program day (for dayId references)
   const todayDayInfo = program?.days
     .map(d => ({ id: d.id, name: d.name, exercises: d.exercises.map(e => e.exerciseId) })) ?? [];
 
   const wowData = buildWoWData([workoutLog, ...recentLogs]);
   const notesContext = formatNotes(workoutLog);
+  const targetContext = buildTargetContext(profile);
+  const weightContext = buildWeightTrend(weightLogs);
 
-  const prompt = `Athlete: ${profile.name}, ${profile.age}yo, ${profile.weight}lbs, ${profile.experience}, goal: ${profile.goal}
-Current maxes — Squat: ${profile.maxLifts['squat'] ?? '?'}, Bench: ${profile.maxLifts['bench'] ?? '?'}, Deadlift: ${profile.maxLifts['deadlift'] ?? '?'}, OHP: ${profile.maxLifts['ohp'] ?? '?'}
+  const recentSessionNames = recentLogs.slice(0, 5).map(l => `${l.date}: ${l.dayName}`).join(', ');
 
-Today's workout (${workoutLog.dayName}, ${workoutLog.durationMinutes ?? '?'}min, rating ${workoutLog.rating ?? '?'}/5):
+  const prompt = `Athlete: ${profile.name}, ${profile.age}yo, ${profile.weight}lbs, ${profile.experience}
+Primary goal: hypertrophy (look great). Secondary goal: strength comeback.
+${targetContext}
+${weightContext}
+
+Today (${workoutLog.dayName}, ${workoutLog.durationMinutes ?? '?'}min, rating ${workoutLog.rating ?? '?'}/5):
 ${exerciseSummaries.join('\n')}
 
 ${wowData}
 
-Recent lift trends: ${recentTrend.join(', ') || 'insufficient data'}
-Sessions this mesocycle: ${recentLogs.length}
+Recent sessions: ${recentSessionNames || 'first session'}
 
-Program days for reference (use exact dayId in actions):
-${todayDayInfo.map(d => `Day "${d.name}" (id: ${d.id}): ${d.exercises.join(', ')}`).join('\n')}
+Program days (use exact dayId in actions):
+${todayDayInfo.map(d => `"${d.name}" (id:${d.id}): ${d.exercises.join(', ')}`).join('\n')}
 
-${notesContext}
+Athlete notes: ${notesContext}
 
-IMPORTANT — weight logging convention: for machine and cable exercises (leg press, hack squat, lat pulldown, cable row, machine press, pec deck, leg extension, leg curl, etc.) the logged weight is the ADDED weight or stack setting only, NOT total resistance. Do not compare these numbers to barbell 1RMs or use them for e1RM calculations. Only suggest ADJUST_MAX_LIFT for free-weight barbell/dumbbell lifts.
-
-Analyze this session with special attention to week-over-week changes. If any e1RM clearly exceeds current max by >5% on a FREE WEIGHT exercise, suggest ADJUST_MAX_LIFT. Give direct, specific coaching.`;
+Coaching focus this session: look at actual set data above. If they're hitting the top of their rep range on main lifts, suggest progressive overload. If volume is low, suggest a superset pairing. If performance dropped vs last week, address recovery. Reference specific exercises and numbers.`;
 
   try {
-    const raw = await callAI(apiKey, prompt, COACHING_SYSTEM, 1024, 'claude-sonnet-4-6');
+    const raw = await callAI(apiKey, prompt, COACHING_SYSTEM, 1200, 'claude-sonnet-4-6');
     const parsed = JSON.parse(raw.trim()) as { analysis?: string; actions?: unknown[] };
     return {
       analysis: parsed.analysis ?? '',
@@ -223,32 +243,46 @@ Analyze this session with special attention to week-over-week changes. If any e1
   }
 }
 
-// ── Weekly review with structured coaching output ────────────────────────────
+// ── Weekly review coaching ────────────────────────────────────────────────────
 
 export async function getWeeklyReviewAnalysis(
   review: WeeklyReview,
   weekLogs: WorkoutLog[],
   profile: UserProfile,
   apiKey: string,
+  weightLogs: WeightLog[] = [],
 ): Promise<{ analysis: string; actions: AIAction[] }> {
   const totalSets = weekLogs.reduce((t, l) => t + l.sets.filter(s => !s.isWarmup).length, 0);
   const wowData = buildWoWData(weekLogs);
+  const targetContext = buildTargetContext(profile);
+  const weightContext = buildWeightTrend(weightLogs);
 
-  const prompt = `Weekly review for ${profile.name}:
-Ratings: Overall ${review.overallRating}/5, Strength ${review.strengthFeel}/5, Recovery ${review.recoveryFeel}/5, Motivation ${review.motivation}/5, Joints ${review.jointHealth}/5
-Sessions: ${weekLogs.length}/${profile.daysPerWeek}, Working sets: ${totalSets}
+  const topSets = weekLogs.flatMap(l => l.sets.filter(s => !s.isWarmup && !isAddedWeightExercise(s.exerciseId)))
+    .reduce((acc, s) => {
+      const e1rm = Math.round(s.weight * (1 + s.reps / 30));
+      if (!acc[s.exerciseName] || e1rm > acc[s.exerciseName]) acc[s.exerciseName] = e1rm;
+      return acc;
+    }, {} as Record<string, number>);
+
+  const prompt = `Weekly review — ${profile.name}:
+Goals: hypertrophy first, strength comeback second.
+${targetContext}
+${weightContext}
+
+Week ratings: Overall ${review.overallRating}/5, Strength feel ${review.strengthFeel}/5, Recovery ${review.recoveryFeel}/5, Motivation ${review.motivation}/5, Joints ${review.jointHealth}/5
+Sessions: ${weekLogs.length}/${profile.daysPerWeek} | Working sets: ${totalSets}
 Notes: "${review.notes}"
+
+Best e1RMs this week (free weights only): ${Object.entries(topSets).map(([n,v]) => `${n}: ${v}`).join(', ') || 'none'}
 
 ${wowData}
 
-Current maxes — Squat: ${profile.maxLifts['squat'] ?? '?'}, Bench: ${profile.maxLifts['bench'] ?? '?'}, Deadlift: ${profile.maxLifts['deadlift'] ?? '?'}, OHP: ${profile.maxLifts['ohp'] ?? '?'}
+Machine/cable weights = added weight only, not total resistance. Do not use for 1RM estimates.
 
-Note: machine/cable exercise weights (leg press, lat pulldown, etc.) are added weight or stack settings only — do not compare to barbell lifts or use for 1RM estimates.
-
-Provide next-week adjustments. Consider: joint health ≤2 → ADD_DELOAD. Recovery ≤2 → reduce volume. Strength ≥4 → potential load increase.`;
+Based on this data: adjust next week's volume, intensity, or exercise selection. If joints ≤2 recommend deload. Reference specific numbers. Suggest superset pairings if volume is the limiting factor for hypertrophy.`;
 
   try {
-    const raw = await callAI(apiKey, prompt, COACHING_SYSTEM, 1024, 'claude-sonnet-4-6');
+    const raw = await callAI(apiKey, prompt, COACHING_SYSTEM, 1200, 'claude-sonnet-4-6');
     const parsed = JSON.parse(raw.trim()) as { analysis?: string; actions?: unknown[] };
     return {
       analysis: parsed.analysis ?? '',
@@ -259,14 +293,14 @@ Provide next-week adjustments. Consider: joint health ≤2 → ADD_DELOAD. Recov
   }
 }
 
-// ── Daily readiness feedback (quick, no structured actions needed) ────────────
+// ── Daily readiness feedback ──────────────────────────────────────────────────
 
 export async function getReadinessFeedback(
   checkin: ReadinessCheckin,
   plannedDay: ProgramDay,
   apiKey: string,
 ): Promise<string> {
-  const system = `You are a powerbuilding coach. Give specific, actionable advice in 2–3 sentences based on today's readiness. No markdown.`;
+  const system = `You are a strength and hypertrophy coach. Give specific, actionable advice in 2–3 sentences. No markdown.`;
   const muscleList = Object.entries(checkin.muscleReadiness)
     .map(([m, v]) => `${m}: ${['','Low','Tired','Normal','Great','Extra'][v]}`)
     .join(', ');
@@ -275,7 +309,7 @@ export async function getReadinessFeedback(
 Muscles: ${muscleList}
 Planned: ${plannedDay.name} (${plannedDay.exercises.slice(0,4).map(e => e.exerciseId).join(', ')})
 
-Advise: train as planned, modify, swap exercises, or rest? Be direct.`;
+Should they train as planned, modify intensity, swap exercises, or rest? Be direct.`;
 
   return callAI(apiKey, prompt, system);
 }
@@ -286,34 +320,66 @@ export async function generateOnboardingInsights(
   profile: UserProfile,
   apiKey: string,
 ): Promise<string> {
-  const system = `You are an elite powerbuilding coach. Be direct, practical, motivating. Under 200 words. Plain text only.`;
-  const prompt = `New athlete: ${profile.name}, ${profile.age}yo, ${profile.weight}lbs, ${profile.height}", ${profile.experience}, goal: ${profile.goal}, ${profile.daysPerWeek}d/week
-Maxes — Squat: ${profile.maxLifts['squat'] ?? 'unknown'}, Bench: ${profile.maxLifts['bench'] ?? 'unknown'}, Deadlift: ${profile.maxLifts['deadlift'] ?? 'unknown'}, OHP: ${profile.maxLifts['ohp'] ?? 'unknown'}
+  const system = `You are an elite strength and hypertrophy coach. Be direct, practical, motivating. Under 200 words. Plain text only.`;
+  const targetLine = profile.targetMaxLifts
+    ? `Comeback targets — Squat: ${profile.targetMaxLifts['squat'] ?? '?'}, Bench: ${profile.targetMaxLifts['bench'] ?? '?'}, Deadlift: ${profile.targetMaxLifts['deadlift'] ?? '?'}`
+    : '';
+  const prompt = `New athlete: ${profile.name}, ${profile.age}yo, ${profile.weight}lbs, ${profile.height}", ${profile.experience}
+Primary goal: hypertrophy (look great). Secondary: strength comeback.
+Current maxes — Squat: ${profile.maxLifts['squat'] ?? 'unknown'}, Bench: ${profile.maxLifts['bench'] ?? 'unknown'}, Deadlift: ${profile.maxLifts['deadlift'] ?? 'unknown'}
+${targetLine}
 
-Write a personalized program overview: starting phase, initial RPE targets, weak points from lift ratios, motivational note.`;
+Write a personalized program overview: hypertrophy-first approach, starting phase, rep range guidance, protein importance, and a motivational note about the comeback journey.`;
   return callAI(apiKey, prompt, system);
 }
 
-// ── Daily tip (home screen, called once per day) ─────────────────────────────
+// ── Daily tip (home screen, varies each day) ─────────────────────────────────
 
 export async function getDailyTip(
   profile: UserProfile,
   recentLogs: WorkoutLog[],
   todayCheckin: ReadinessCheckin | null,
   apiKey: string,
+  weightLogs: WeightLog[] = [],
+  proteinToday?: boolean,
 ): Promise<string> {
-  const system = `You are a powerbuilding coach. Give one short, specific coaching tip for today — 1-2 sentences max. No markdown, no greeting, no sign-off.`;
+  const system = `You are a hypertrophy and strength coach giving a daily coaching tip. Rules:
+- Be SPECIFIC and DATA-DRIVEN — reference actual exercises, weights, or trends from their data
+- VARY your advice daily: rotate between topics (progressive overload, superset technique, nutrition, sleep/recovery, mind-muscle connection, upcoming workout prep, protein timing, rep tempo, etc.)
+- 2 sentences max. No markdown, no greeting, no sign-off.
+- Never give a generic tip that ignores their actual data.`;
+
   const lastWorkout = recentLogs[0];
-  const wowLine = recentLogs.length >= 2 ? buildWoWData(recentLogs.slice(0, 8)).split('\n').slice(0, 3).join('; ') : '';
-  const prompt = `${profile.name}, ${profile.experience}, goal: ${profile.goal}
-Last session: ${lastWorkout ? `${lastWorkout.dayName} on ${lastWorkout.date}` : 'none logged'}
-Readiness today: ${todayCheckin ? `energy ${todayCheckin.overallEnergy}/5, sleep ${todayCheckin.sleepHours}h, stress ${todayCheckin.stress}/5` : 'no check-in yet'}
+  const wowLine = recentLogs.length >= 2 ? buildWoWData(recentLogs.slice(0, 8)).split('\n').slice(0, 4).join(' | ') : '';
+  const targetContext = buildTargetContext(profile);
+  const weightContext = buildWeightTrend(weightLogs);
+
+  // Summarize last session's top sets for context
+  const lastTopSets = lastWorkout
+    ? Array.from(new Set(lastWorkout.sets.filter(s => !s.isWarmup).map(s => s.exerciseName)))
+        .slice(0, 3)
+        .map(name => {
+          const exSets = lastWorkout.sets.filter(s => s.exerciseName === name && !s.isWarmup);
+          const top = exSets.reduce((b, s) => s.weight > b.weight ? s : b, exSets[0]);
+          return `${name} ${top.weight}×${top.reps}`;
+        }).join(', ')
+    : null;
+
+  const prompt = `${profile.name} — hypertrophy-first, strength comeback.
+${targetContext}
+${weightContext}
+Last session (${lastWorkout?.date ?? 'none'}): ${lastTopSets ?? 'no data'} — ${lastWorkout?.dayName ?? ''}
+Today's readiness: ${todayCheckin ? `energy ${todayCheckin.overallEnergy}/5, sleep ${todayCheckin.sleepHours}h, stress ${todayCheckin.stress}/5` : 'no check-in'}
+Protein shake today: ${proteinToday ? 'yes' : 'not yet logged'}
 ${wowLine ? `Recent trend: ${wowLine}` : ''}
-Give one actionable tip for today's training or recovery.`;
-  return callAI(apiKey, prompt, system, 200, 'claude-haiku-4-5-20251001');
+Sessions logged: ${recentLogs.length}
+
+Give one specific, actionable coaching tip based on this data. Pick a different angle than yesterday.`;
+
+  return callAI(apiKey, prompt, system, 150, 'claude-haiku-4-5-20251001');
 }
 
-// ── Post-workout brief feedback (text only, fast) ────────────────────────────
+// ── Post-workout brief feedback (fast text) ───────────────────────────────────
 
 export async function getWorkoutFeedback(
   log: WorkoutLog,
@@ -322,13 +388,18 @@ export async function getWorkoutFeedback(
 ): Promise<string> {
   const sets = log.sets.filter(s => !s.isWarmup);
   const exercises = Array.from(new Set(sets.map(s => s.exerciseName)));
-  const topSets = exercises.slice(0, 3).map(name => {
+  const topSets = exercises.slice(0, 4).map(name => {
     const exSets = sets.filter(s => s.exerciseName === name);
     const top = exSets.reduce((b, s) => (s.weight > b.weight ? s : b), exSets[0]);
-    return `${name}: ${top.weight}×${top.reps}${top.rpe ? ` @${top.rpe}` : ''}`;
+    const isMachine = isAddedWeightExercise(exSets[0]?.exerciseId ?? '');
+    return `${name}: ${top.weight}×${top.reps}${top.rpe ? ` @${top.rpe}` : ''}${isMachine ? ' (machine)' : ''}`;
   });
+  const targetLine = buildTargetContext(profile);
 
-  const system = `You are a powerbuilding coach. 2 sentences max. No markdown.`;
-  const prompt = `Post-workout ${profile.name} (${log.dayName}): ${topSets.join(', ')} | ${log.durationMinutes ?? '?'}min, rating ${log.rating}/5, goal: ${profile.goal}. Brief feedback + one tip.`;
-  return callAI(apiKey, prompt, system);
+  const system = `You are a hypertrophy and strength coach. 2 sentences. Specific feedback on performance + one actionable next-step. No markdown.`;
+  const prompt = `Post-workout: ${profile.name} (${log.dayName}, ${log.durationMinutes ?? '?'}min, rating ${log.rating}/5)
+Sets: ${topSets.join(' | ')}
+Goal: hypertrophy first, strength comeback second.
+${targetLine}`;
+  return callAI(apiKey, prompt, system, 150);
 }
