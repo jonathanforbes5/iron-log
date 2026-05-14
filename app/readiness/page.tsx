@@ -122,7 +122,7 @@ export default function ReadinessPage() {
   });
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-[100dvh]">
       {/* Header + tab switcher */}
       <div className="px-4 pt-6 pb-0">
         <div className="flex items-center gap-3 mb-4">

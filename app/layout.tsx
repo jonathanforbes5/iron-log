@@ -19,11 +19,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark">
-      <body className="bg-zinc-950 text-zinc-100 min-h-screen">
+      <body className="bg-zinc-950 text-zinc-100 min-h-[100dvh]">
         <StoreProvider>
           <OnboardingGate>
-            <div className="max-w-lg mx-auto flex flex-col min-h-screen">
-              <main className="flex-1 pb-24">{children}</main>
+            <div className="max-w-lg mx-auto flex flex-col min-h-[100dvh]">
+              <main className="flex-1 pb-nav">{children}</main>
               <Nav />
             </div>
           </OnboardingGate>

@@ -383,7 +383,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
   const elapsedSec = elapsed % 60;
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-[100dvh]">
       {/* Sticky header */}
       <div className="sticky top-0 z-40 bg-zinc-950/95 backdrop-blur border-b border-zinc-800 px-4 py-3">
         <div className="flex items-center justify-between">
@@ -443,7 +443,7 @@ function ActiveWorkoutView({ workout, logs, profile, onLogSet, onRemoveSet, onUp
               <div className="ml-auto flex items-center gap-2">
                 {[60,90,180].map(t => (
                   <button key={t} onClick={() => setRestTick(t)}
-                    className="text-[10px] font-bold text-zinc-500 hover:text-zinc-200 bg-zinc-700 hover:bg-zinc-600 px-1.5 py-0.5 rounded transition-colors">
+                    className="text-[10px] font-bold text-zinc-500 hover:text-zinc-200 bg-zinc-700 hover:bg-zinc-600 px-3 py-1.5 rounded transition-colors">
                     {t < 60 ? `${t}s` : `${t/60}m`}
                   </button>
                 ))}
@@ -1350,7 +1350,7 @@ function FinishModal({ workout, elapsed, initialNotes, onConfirm, onCancel, onAb
         </div>
 
         {/* Sticky action buttons */}
-        <div className="flex-shrink-0 px-6 pt-3 pb-6 border-t border-zinc-800 space-y-2">
+        <div className="flex-shrink-0 px-6 pt-3 pb-safe-6 border-t border-zinc-800 space-y-2">
           <div className="flex gap-2">
             <button onClick={onCancel} className="flex-1 border border-zinc-700 text-zinc-400 font-bold py-3.5 rounded-xl hover:bg-zinc-800 transition-colors text-sm">
               Keep Going
@@ -1586,7 +1586,7 @@ function PreWorkoutModal({ dayName, hasTodayCheckin, onStart, onCancel }: {
           </div>
 
           {/* Actions */}
-          <div className="px-6 pb-8 pt-2 space-y-2">
+          <div className="px-6 pb-safe-8 pt-2 space-y-2">
             <button onClick={handleGo}
               className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-4 rounded-2xl transition-colors text-lg active:scale-[0.98]">
               Let's Go

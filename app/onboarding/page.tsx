@@ -126,7 +126,7 @@ export default function OnboardingPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col">
+    <div className="min-h-[100dvh] bg-zinc-950 flex flex-col">
       {/* Header */}
       <div className="px-6 pt-12 pb-6">
         <div className="flex items-center gap-2 mb-8">
