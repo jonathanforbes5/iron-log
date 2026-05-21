@@ -24,7 +24,7 @@ const LOCATIONS = [
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 export default function WorkoutPage() {
-  const { activeWorkout, startWorkout, logSet, removeSet, updateSet, setExerciseNote, swapExercise, toggleSkipExercise, finishWorkout, cancelWorkout } = useWorkout();
+  const { activeWorkout, startWorkout, logSet, removeSet, updateSet, setExerciseNote, swapExercise, toggleSkipExercise, finishWorkout, cancelWorkout, advanceDay } = useWorkout();
   const { program, currentDay } = useActiveProgram();
   const logs = useLogs();
   const { profile } = useProfile();
@@ -34,6 +34,7 @@ export default function WorkoutPage() {
   const { weightLogs } = useWeightLog();
   const [showCardio, setShowCardio] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [skipConfirm, setSkipConfirm] = useState(false);
   const [finishedLog, setFinishedLog] = useState<import('@/lib/types').WorkoutLog | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -188,15 +189,34 @@ export default function WorkoutPage() {
               );
             })}
           </div>
-          <div className="px-4 pb-4 flex gap-2">
-            <button onClick={() => setShowPreview(true)}
-              className="flex items-center gap-1.5 border border-zinc-700 hover:border-zinc-600 text-zinc-400 hover:text-zinc-200 font-bold py-3 px-4 rounded-xl transition-colors text-sm flex-shrink-0">
-              <Eye size={15} /> Preview
-            </button>
-            <button onClick={() => requestStart(currentDay.name, currentDay.exercises)}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-xl transition-colors active:scale-[0.98] text-base">
-              Start Workout
-            </button>
+          <div className="px-4 pb-4 space-y-2">
+            <div className="flex gap-2">
+              <button onClick={() => setShowPreview(true)}
+                className="flex items-center gap-1.5 border border-zinc-700 hover:border-zinc-600 text-zinc-400 hover:text-zinc-200 font-bold py-3 px-4 rounded-xl transition-colors text-sm flex-shrink-0">
+                <Eye size={15} /> Preview
+              </button>
+              <button onClick={() => requestStart(currentDay.name, currentDay.exercises)}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-xl transition-colors active:scale-[0.98] text-base">
+                Start Workout
+              </button>
+            </div>
+            {skipConfirm ? (
+              <div className="flex gap-2">
+                <button onClick={() => setSkipConfirm(false)}
+                  className="flex-1 border border-zinc-700 text-zinc-400 font-bold py-2.5 rounded-xl text-sm transition-colors hover:bg-zinc-800">
+                  Cancel
+                </button>
+                <button onClick={() => { advanceDay(); setSkipConfirm(false); }}
+                  className="flex-1 border border-red-500/40 text-red-400 font-bold py-2.5 rounded-xl text-sm transition-colors hover:bg-red-500/10">
+                  Yes, skip it
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setSkipConfirm(true)}
+                className="w-full text-zinc-600 hover:text-zinc-400 text-xs font-semibold py-1.5 transition-colors">
+                Skip this workout →
+              </button>
+            )}
           </div>
         </div>
       ) : (

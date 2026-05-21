@@ -439,6 +439,7 @@ export function useWorkout() {
     toggleSkipExercise: useCallback((id: string) => dispatch({ type: 'TOGGLE_SKIP_EXERCISE', exerciseId: id }), [dispatch]),
     finishWorkout: useCallback((log: WorkoutLog) => dispatch({ type: 'FINISH_WORKOUT', log }), [dispatch]),
     cancelWorkout: useCallback(() => dispatch({ type: 'CANCEL_WORKOUT' }), [dispatch]),
+    advanceDay:    useCallback(() => dispatch({ type: 'ADVANCE_DAY' }), [dispatch]),
   };
 }
 
